@@ -1,4 +1,5 @@
 import React from "react";
+import packageJson from "../../package.json";
 
 export default function AuthLayout({ icon: Icon, title, subtitle, footer, children }) {
   return (
@@ -21,6 +22,9 @@ export default function AuthLayout({ icon: Icon, title, subtitle, footer, childr
         {footer && (
           <p className="text-center text-sm text-[#F5F5F3]/30 mt-6">{footer}</p>
         )}
+      </div>
+      <div className="fixed bottom-3 right-4 text-[#F5F5F3]/10 text-[10px] tracking-[0.2em] uppercase pointer-events-none select-none z-50 font-mono">
+        CIMA v.{packageJson.version}
       </div>
     </div>
   );

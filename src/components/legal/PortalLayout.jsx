@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { Outlet } from "react-router-dom";
 import { Menu } from "lucide-react";
 import PortalSidebar from "./PortalSidebar";
+import packageJson from "../../../package.json";
 
 export default function PortalLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -18,7 +19,7 @@ export default function PortalLayout() {
         </div>
       </main>
       <div className="fixed bottom-3 right-4 text-[#F5F5F3]/10 text-[10px] tracking-[0.2em] uppercase pointer-events-none select-none z-50 font-mono">
-        CIMA v.1.0.3
+        CIMA v.{packageJson.version}
       </div>
     </div>
   );
