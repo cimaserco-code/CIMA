@@ -21,6 +21,7 @@ import Equipo from './pages/Equipo';
 import Administracion from './pages/Administracion';
 import Honorarios from './pages/Honorarios';
 import Clientes from './pages/Clientes';
+import VistaCliente from './pages/VistaCliente';
 import PortalLayout from './components/legal/PortalLayout';
 
 const AuthenticatedApp = () => {
@@ -53,6 +54,7 @@ const AuthenticatedApp = () => {
           <Route path="/equipo" element={<Equipo />} />
           <Route path="/honorarios" element={<Honorarios />} />
           <Route path="/clientes" element={<Clientes />} />
+          <Route path="/vista-cliente" element={<VistaCliente />} />
           <Route path="/administracion" element={<Administracion />} />
         </Route>
       </Route>
