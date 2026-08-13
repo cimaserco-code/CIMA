@@ -37,9 +37,7 @@ export default function PortalSidebar({ open, onClose }) {
       return true;
     });
     
-    // Add Vista Cliente link for staff/admins to preview client portal
-    items.push({ label: "Vista Cliente", icon: Eye, path: "/vista-cliente" });
-    
+    // Add adminItem if permitted
     if (permissions?.can_manage_users) {
       items.push(adminItem);
     }

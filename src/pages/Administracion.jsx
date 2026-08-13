@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
-import { Shield, Users, Mail, Pencil, Search, Check, UserPlus, Lock, Save, Folder, Plus, Trash } from "lucide-react";
+import { Shield, Users, Mail, Pencil, Search, Check, UserPlus, Lock, Save, Folder, Plus, Trash, Eye } from "lucide-react";
 import PageHeader from "@/components/legal/PageHeader";
 import Modal from "@/components/legal/Modal";
 
 export default function Administracion() {
+  const navigate = useNavigate();
   const [users, setUsers] = useState([]);
   const [perms, setPerms] = useState([]);
   const [areas, setAreas] = useState([]);
@@ -269,6 +271,12 @@ export default function Administracion() {
         subtitle="Gestión de usuarios, áreas, roles y permisos"
         action={
           <div className="flex items-center gap-3">
+            <button 
+              onClick={() => navigate("/vista-cliente")} 
+              className="bg-transparent border border-[#1A1A1A] hover:border-[#C9A227] hover:text-[#C9A227] text-[#F5F5F3]/60 text-xs tracking-wider uppercase px-4 py-3 flex items-center gap-2 transition-colors duration-300"
+            >
+              <Eye size={14} /> Vista Cliente
+            </button>
             <span className="hidden sm:flex items-center gap-2 text-[10px] tracking-wider uppercase text-[#C9A227] bg-[#C9A227]/10 px-3 py-2 border border-[#C9A227]/20">
               <Shield size={13} /> Panel de Control
             </span>
