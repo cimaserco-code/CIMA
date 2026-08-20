@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Briefcase, FileText, CheckSquare, Calendar, Users, Shield, X, LogOut, DollarSign, Contact, Eye } from "lucide-react";
+import { LayoutDashboard, Briefcase, FileText, CheckSquare, Calendar, Users, Shield, X, LogOut, DollarSign, Contact, Eye, MessageSquare } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 
 const navItems = [
@@ -12,6 +12,7 @@ const navItems = [
   { label: "Equipo", icon: Users, path: "/equipo" },
   { label: "Honorarios", icon: DollarSign, path: "/honorarios" },
   { label: "Clientes", icon: Contact, path: "/clientes" },
+  { label: "Comentarios", icon: MessageSquare, path: "/comentarios" },
 ];
 
 const adminItem = { label: "Administración", icon: Shield, path: "/administracion" };
@@ -23,7 +24,10 @@ export default function PortalSidebar({ open, onClose }) {
   
   let items = [];
   if (isClientRole) {
-    items = [{ label: "Mi Portal", icon: Contact, path: "/vista-cliente" }];
+    items = [
+      { label: "Mi Portal", icon: Contact, path: "/vista-cliente" },
+      { label: "Comentarios", icon: MessageSquare, path: "/comentarios" }
+    ];
   } else {
     items = navItems.filter(item => {
       if (item.label === "Inicio") return true;

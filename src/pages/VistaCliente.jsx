@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Briefcase, FileText, Calendar, Eye, User, Mail, Phone, Users, Download, Info } from "lucide-react";
+import { Briefcase, FileText, Calendar, Eye, User, Mail, Phone, Users, Download, Info, DollarSign } from "lucide-react";
 import PageHeader from "@/components/legal/PageHeader";
 import { useAuth } from "@/lib/AuthContext";
 
@@ -16,10 +16,17 @@ export default function VistaCliente() {
   const [cases, setCases] = useState([]);
   const [docs, setDocs] = useState([]);
   const [events, setEvents] = useState([]);
+  const [fees, setFees] = useState([]);
+  const [teamMembers, setTeamMembers] = useState([]);
   const [loading, setLoading] = useState(false);
 
-  // Load client dropdown if admin
+  // Load client dropdown and team members list
   useEffect(() => {
+    (async () => {
+      const { data: tmData } = await supabase.from("team_members").select("*");
+      if (tmData) setTeamMembers(tmData);
+    })();
+
     if (isAdminOrStaff) {
       (async () => {
         const { data } = await supabase.from("clients").select("*").order("full_name");
@@ -74,9 +81,14 @@ export default function VistaCliente() {
         // 3. Fetch events for these cases
         const { data: eData } = await supabase.from("calendar_events").select("*").in("case_id", caseIds);
         setEvents(eData || []);
+
+        // 4. Fetch fees for these cases
+        const { data: fData } = await supabase.from("fees").select("*").in("case_id", caseIds);
+        setFees(fData || []);
       } else {
         setDocs([]);
         setEvents([]);
+        setFees([]);
       }
     } catch (e) {
       console.error(e);
@@ -93,19 +105,29 @@ export default function VistaCliente() {
     archivado: "text-[#F5F5F3]/20 bg-[#F5F5F3]/5 border-[#1A1A1A]"
   };
 
-  const formatLawyers = (lwList) => {
-    if (!lwList) return "Sin asignar";
-    if (Array.isArray(lwList)) {
-      return lwList.length > 0 ? lwList.join(", ") : "Sin asignar";
-    }
-    return lwList;
+  const feeStatusColors = {
+    pagado: "text-green-400 bg-green-400/10 border-green-400/20",
+    pendiente: "text-[#C9A227] bg-[#C9A227]/10 border-[#C9A227]/20",
+    cancelado: "text-red-400 bg-red-400/10 border-red-400/20"
   };
+
+  // Filter team members list to find lawyers assigned to the client's cases
+  const assignedLawyerNames = Array.from(new Set(cases.flatMap(c => c.assigned_lawyers || [])));
+  const clientLawyers = teamMembers.filter(m => assignedLawyerNames.includes(m.full_name));
+
+  const initials = (name) => name?.split(" ").map((n) => n[0]).slice(0, 2).join("") || "·";
+
+  // Calculate totals
+  const totalPaid = fees.filter(f => f.status === "pagado").reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+  const totalPending = fees.filter(f => f.status === "pendiente").reduce((acc, curr) => acc + Number(curr.amount || 0), 0);
+
+  const fmt = (num) => new Intl.NumberFormat("es-MX", { style: "currency", currency: "MXN" }).format(num);
 
   return (
     <div className="space-y-6">
       <PageHeader 
         title="Portal de Cliente" 
-        subtitle={isAdminOrStaff ? "Previsualización administrativa de la vista del cliente" : "Consulta tus expedientes, documentos y horario de citas"} 
+        subtitle={isAdminOrStaff ? "Previsualización administrativa de la vista del cliente" : "Consulta tus expedientes, abogados asignados, documentos y horario de citas"} 
       />
 
       {/* Admin selection header */}
@@ -150,61 +172,121 @@ export default function VistaCliente() {
             </div>
           </div>
 
-          {/* Two-Column Responsive Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            
-            {/* Left Column: Cases & Assigned Lawyers */}
-            <div className="lg:col-span-2 space-y-6">
-              <div className="bg-[#080808] border border-[#1A1A1A] p-6 flex flex-col min-h-[400px]">
-                <div className="flex items-center gap-2 mb-4 border-b border-[#1A1A1A] pb-3 flex-shrink-0">
-                  <Briefcase size={16} className="text-[#C9A227]" />
-                  <h3 className="text-[#F5F5F3] text-sm font-heading tracking-wide">Mis Casos y Abogados Asignados ({cases.length})</h3>
-                </div>
-                
-                <div className="space-y-4 overflow-y-auto flex-1 pr-1">
-                  {cases.map(c => (
-                    <div key={c.id} className="p-5 bg-[#0F0F0F] border border-[#1A1A1A] space-y-4">
-                      <div className="flex justify-between items-start gap-4">
-                        <div>
-                          <h4 className="text-[#F5F5F3] text-sm font-semibold">{c.title}</h4>
-                          <p className="text-[#F5F5F3]/30 text-[10px] font-mono mt-0.5">Expediente: {c.case_number}</p>
-                        </div>
-                        <span className={`text-[8px] tracking-wider uppercase px-2 py-0.5 border ${statusColors[c.status] || "text-[#F5F5F3]/40 bg-[#F5F5F3]/5 border-[#1A1A1A]"}`}>{c.status}</span>
-                      </div>
+          {/* Honorarios (Fees) Section - Just below welcome header */}
+          <div className="bg-[#080808] border border-[#1A1A1A] p-6 text-left">
+            <div className="flex items-center gap-2 mb-4 border-b border-[#1A1A1A] pb-3">
+              <DollarSign size={16} className="text-[#C9A227]" />
+              <h3 className="text-[#F5F5F3] text-sm font-heading tracking-wide">Mi Cuenta y Honorarios</h3>
+            </div>
 
-                      {c.description && (
-                        <p className="text-[#F5F5F3]/60 text-xs leading-relaxed border-t border-[#1A1A1A]/50 pt-3">{c.description}</p>
-                      )}
-
-                      <div className="flex items-start gap-2.5 bg-[#080808] p-3 border border-[#1A1A1A] text-xs">
-                        <Users size={14} className="text-[#C9A227] mt-0.5 flex-shrink-0" />
-                        <div>
-                          <p className="text-[#F5F5F3]/40 text-[9px] uppercase tracking-wider font-bold">Abogado(s) de Cabecera</p>
-                          <p className="text-[#F5F5F3]/80 mt-1 font-medium">{formatLawyers(c.assigned_lawyers)}</p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  
-                  {cases.length === 0 && (
-                    <div className="text-center py-20 text-[#F5F5F3]/20 text-xs italic">No tienes casos o expedientes vinculados en este momento.</div>
-                  )}
-                </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+              <div className="p-4 bg-[#0F0F0F] border border-[#1A1A1A]">
+                <p className="text-[#F5F5F3]/40 text-[9px] uppercase tracking-wider font-bold">Total Pagado</p>
+                <p className="text-green-400 text-lg font-heading font-semibold mt-1">{fmt(totalPaid)}</p>
+              </div>
+              <div className="p-4 bg-[#0F0F0F] border border-[#1A1A1A]">
+                <p className="text-[#F5F5F3]/40 text-[9px] uppercase tracking-wider font-bold">Saldo Pendiente</p>
+                <p className="text-[#C9A227] text-lg font-heading font-semibold mt-1">{fmt(totalPending)}</p>
               </div>
             </div>
 
-            {/* Right Column: Schedule & Shared Documents */}
-            <div className="lg:col-span-1 space-y-6">
+            {/* List of Payments */}
+            <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1 scrollbar-thin">
+              {fees.map(f => (
+                <div key={f.id} className="flex justify-between items-center p-3 bg-[#0F0F0F] border border-[#1A1A1A] text-xs">
+                  <div>
+                    <p className="text-[#F5F5F3] font-medium">{f.description || "Pago de Honorarios"}</p>
+                    <p className="text-[#F5F5F3]/30 text-[9px] mt-0.5">
+                      {f.due_date ? `Vence: ${new Date(f.due_date).toLocaleDateString("es")}` : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[#F5F5F3] font-semibold">{fmt(f.amount)}</span>
+                    <span className={`text-[8px] tracking-wider uppercase px-2 py-0.5 border ${feeStatusColors[f.status] || "text-[#F5F5F3]/40 bg-[#F5F5F3]/5"}`}>
+                      {f.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+              {fees.length === 0 && (
+                <p className="text-[#F5F5F3]/20 text-xs italic text-center py-6">No hay registros de cobros o pagos registrados.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Three-Column Responsive Layout */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            
+            {/* Column 1: Cases */}
+            <div className="bg-[#080808] border border-[#1A1A1A] p-6 flex flex-col h-[480px]">
+              <div className="flex items-center gap-2 mb-4 border-b border-[#1A1A1A] pb-3 flex-shrink-0">
+                <Briefcase size={16} className="text-[#C9A227]" />
+                <h3 className="text-[#F5F5F3] text-sm font-heading tracking-wide">Mis Casos Activos ({cases.length})</h3>
+              </div>
+              
+              <div className="space-y-3 overflow-y-auto flex-1 pr-1 scrollbar-thin">
+                {cases.map(c => (
+                  <div key={c.id} className="p-4 bg-[#0F0F0F] border border-[#1A1A1A] space-y-2 text-left">
+                    <div className="flex justify-between items-start gap-2">
+                      <h4 className="text-[#F5F5F3] text-xs font-semibold truncate">{c.title}</h4>
+                      <span className={`text-[8px] tracking-wider uppercase px-2 py-0.5 border ${statusColors[c.status] || "text-[#F5F5F3]/40 bg-[#F5F5F3]/5 border-[#1A1A1A]"}`}>{c.status}</span>
+                    </div>
+                    <p className="text-[#F5F5F3]/30 text-[9px] font-mono">No. {c.case_number}</p>
+                    {c.description && (
+                      <p className="text-[#F5F5F3]/50 text-[10px] line-clamp-3 mt-1.5 leading-relaxed">{c.description}</p>
+                    )}
+                  </div>
+                ))}
+                
+                {cases.length === 0 && (
+                  <div className="text-center py-20 text-[#F5F5F3]/20 text-xs italic">No tienes casos o expedientes vinculados.</div>
+                )}
+              </div>
+            </div>
+
+            {/* Column 2: Assigned Lawyers Contact Cards */}
+            <div className="bg-[#080808] border border-[#1A1A1A] p-6 flex flex-col h-[480px]">
+              <div className="flex items-center gap-2 mb-4 border-b border-[#1A1A1A] pb-3 flex-shrink-0">
+                <Users size={16} className="text-[#C9A227]" />
+                <h3 className="text-[#F5F5F3] text-sm font-heading tracking-wide">Mis Abogados Asignados ({clientLawyers.length})</h3>
+              </div>
+
+              <div className="space-y-3 overflow-y-auto flex-1 pr-1 scrollbar-thin">
+                {clientLawyers.map(m => (
+                  <div key={m.id} className="p-4 bg-[#0F0F0F] border border-[#1A1A1A] text-left flex gap-3 items-center">
+                    <div className="w-10 h-10 bg-[#C9A227]/10 border border-[#C9A227]/20 flex items-center justify-center text-[#C9A227] text-xs font-semibold flex-shrink-0">
+                      {initials(m.full_name)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <h4 className="text-[#F5F5F3] text-xs font-medium truncate">{m.full_name}</h4>
+                      <p className="text-[#F5F5F3]/30 text-[8px] uppercase tracking-wider">{m.role}</p>
+                      
+                      <div className="mt-2 space-y-1 text-[10px] text-[#F5F5F3]/50">
+                        {m.email && <a href={`mailto:${m.email}`} className="flex items-center gap-1.5 hover:text-[#C9A227] transition-colors truncate"><Mail size={10} />{m.email}</a>}
+                        {m.phone && <a href={`tel:${m.phone}`} className="flex items-center gap-1.5 hover:text-[#C9A227] transition-colors"><Phone size={10} />{m.phone}</a>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {clientLawyers.length === 0 && (
+                  <div className="text-center py-20 text-[#F5F5F3]/20 text-xs italic">No hay abogados asignados de cabecera en tus casos.</div>
+                )}
+              </div>
+            </div>
+
+            {/* Column 3: Schedule & Documents Stack */}
+            <div className="space-y-6 flex flex-col h-[480px]">
               
               {/* Horario (Calendar/Schedule) */}
-              <div className="bg-[#080808] border border-[#1A1A1A] p-6 flex flex-col h-[280px]">
+              <div className="bg-[#080808] border border-[#1A1A1A] p-6 flex flex-col flex-1 min-h-[220px]">
                 <div className="flex items-center gap-2 mb-3 border-b border-[#1A1A1A] pb-2 flex-shrink-0">
                   <Calendar size={15} className="text-[#C9A227]" />
                   <h3 className="text-[#F5F5F3] text-xs tracking-wider uppercase">Mi Horario (Próximas Citas)</h3>
                 </div>
-                <div className="space-y-3 overflow-y-auto flex-1 pr-1 scrollbar-thin">
+                <div className="space-y-2.5 overflow-y-auto flex-1 pr-1 scrollbar-thin">
                   {events.map(e => (
-                    <div key={e.id} className="p-3 bg-[#0F0F0F] border border-[#1A1A1A]">
+                    <div key={e.id} className="p-3 bg-[#0F0F0F] border border-[#1A1A1A] text-left">
                       <p className="text-[#F5F5F3] text-xs font-medium">{e.title}</p>
                       <p className="text-[#C9A227] text-[9px] tracking-wider uppercase mt-1">
                         {new Date(e.event_date).toLocaleDateString("es", { day: 'numeric', month: 'long' })}
@@ -213,20 +295,20 @@ export default function VistaCliente() {
                     </div>
                   ))}
                   {events.length === 0 && (
-                    <div className="text-center py-12 text-[#F5F5F3]/20 text-xs italic">Sin audiencias o citas agendadas</div>
+                    <div className="text-center py-8 text-[#F5F5F3]/20 text-xs italic">Sin audiencias o citas agendadas</div>
                   )}
                 </div>
               </div>
 
               {/* Shared Documents */}
-              <div className="bg-[#080808] border border-[#1A1A1A] p-6 flex flex-col h-[280px]">
+              <div className="bg-[#080808] border border-[#1A1A1A] p-6 flex flex-col flex-1 min-h-[220px]">
                 <div className="flex items-center gap-2 mb-3 border-b border-[#1A1A1A] pb-2 flex-shrink-0">
                   <FileText size={15} className="text-[#C9A227]" />
                   <h3 className="text-[#F5F5F3] text-xs tracking-wider uppercase">Mis Documentos</h3>
                 </div>
-                <div className="space-y-3 overflow-y-auto flex-1 pr-1 scrollbar-thin">
+                <div className="space-y-2.5 overflow-y-auto flex-1 pr-1 scrollbar-thin">
                   {docs.map(d => (
-                    <div key={d.id} className="p-3 bg-[#0F0F0F] border border-[#1A1A1A] flex justify-between items-center gap-2">
+                    <div key={d.id} className="p-3 bg-[#0F0F0F] border border-[#1A1A1A] flex justify-between items-center gap-2 text-left">
                       <div className="min-w-0">
                         <p className="text-[#F5F5F3] text-xs truncate font-medium">{d.title}</p>
                         <p className="text-[#F5F5F3]/30 text-[8px] mt-0.5">{cap(d.doc_type)} · {new Date(d.created_at).toLocaleDateString("es")}</p>
@@ -245,7 +327,7 @@ export default function VistaCliente() {
                     </div>
                   ))}
                   {docs.length === 0 && (
-                    <div className="text-center py-12 text-[#F5F5F3]/20 text-xs italic">Sin documentos cargados</div>
+                    <div className="text-center py-8 text-[#F5F5F3]/20 text-xs italic">Sin documentos cargados</div>
                   )}
                 </div>
               </div>

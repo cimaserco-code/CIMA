@@ -5,6 +5,8 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Limpiar tablas previas para evitar conflictos de referencias
 DROP TABLE IF EXISTS public.messages CASCADE;
+DROP TABLE IF EXISTS public.suggestion_replies CASCADE;
+DROP TABLE IF EXISTS public.suggestions CASCADE;
 DROP TABLE IF EXISTS public.fees CASCADE;
 DROP TABLE IF EXISTS public.calendar_events CASCADE;
 DROP TABLE IF EXISTS public.documents CASCADE;
@@ -32,6 +34,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   role TEXT NOT NULL DEFAULT 'Usuario' CHECK (role IN ('Admin', 'Usuario', 'Cliente', 'Direccion General', 'Direccion de Area')),
   area_id UUID REFERENCES public.areas(id) ON DELETE SET NULL,
   avatar_url TEXT,
+  bio TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -67,12 +70,14 @@ BEGIN
     DELETE FROM public.team_members WHERE user_id = NEW.id;
   ELSE
     -- Para cualquier otro rol, lo insertamos o actualizamos en team_members
-    INSERT INTO public.team_members (full_name, email, user_id, role)
-    VALUES (NEW.full_name, NEW.email, NEW.id, NEW.role)
+    INSERT INTO public.team_members (full_name, email, user_id, role, bio, area_id)
+    VALUES (NEW.full_name, NEW.email, NEW.id, NEW.role, NEW.bio, NEW.area_id)
     ON CONFLICT (email) DO UPDATE 
     SET full_name = EXCLUDED.full_name, 
         user_id = EXCLUDED.user_id,
-        role = EXCLUDED.role;
+        role = EXCLUDED.role,
+        bio = EXCLUDED.bio,
+        area_id = EXCLUDED.area_id;
   END IF;
   RETURN NEW;
 END;
@@ -90,6 +95,8 @@ CREATE TABLE IF NOT EXISTS public.team_members (
   phone TEXT,
   role TEXT NOT NULL DEFAULT 'Abogado',
   user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  bio TEXT,
+  area_id UUID REFERENCES public.areas(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -279,6 +286,30 @@ CREATE POLICY "Permitir acceso total en messages" ON public.messages FOR ALL USI
 CREATE POLICY "Permitir acceso total en areas" ON public.areas FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Permitir acceso total en fees" ON public.fees FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Permitir acceso total en clients" ON public.clients FOR ALL USING (auth.role() = 'authenticated');
+
+-- 11. Tablas de Sugerencias y Foro
+CREATE TABLE IF NOT EXISTS public.suggestions (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  title TEXT NOT NULL,
+  content TEXT NOT NULL,
+  category TEXT DEFAULT 'sugerencia' CHECK (category IN ('sugerencia', 'cambio', 'error', 'otro')),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.suggestion_replies (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  suggestion_id UUID REFERENCES public.suggestions(id) ON DELETE CASCADE NOT NULL,
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.suggestions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.suggestion_replies ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Permitir acceso total en suggestions" ON public.suggestions FOR ALL USING (auth.role() = 'authenticated');
+CREATE POLICY "Permitir acceso total en replies" ON public.suggestion_replies FOR ALL USING (auth.role() = 'authenticated');
 
 -- Configuración del Storage de Supabase para documentos
 INSERT INTO storage.buckets (id, name, public) VALUES ('documents', 'documents', true) ON CONFLICT (id) DO NOTHING;

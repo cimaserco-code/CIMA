@@ -22,6 +22,7 @@ import Administracion from './pages/Administracion';
 import Honorarios from './pages/Honorarios';
 import Clientes from './pages/Clientes';
 import VistaCliente from './pages/VistaCliente';
+import Comentarios from './pages/Comentarios';
 import PortalLayout from './components/legal/PortalLayout';
 
 const AuthenticatedApp = () => {
@@ -55,6 +56,7 @@ const AuthenticatedApp = () => {
           <Route path="/honorarios" element={<Honorarios />} />
           <Route path="/clientes" element={<Clientes />} />
           <Route path="/vista-cliente" element={<VistaCliente />} />
+          <Route path="/comentarios" element={<Comentarios />} />
           <Route path="/administracion" element={<Administracion />} />
         </Route>
       </Route>

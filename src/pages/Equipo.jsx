@@ -12,16 +12,18 @@ const roleColors = {
   "direccion de area": "text-purple-400 bg-purple-400/10 border-purple-400/20"
 };
 
-const EMPTY = { full_name: "", role: "Usuario", email: "", phone: "" };
+const EMPTY = { full_name: "", role: "Usuario", email: "", phone: "", bio: "" };
 
 const initials = (name) => name?.split(" ").map((n) => n[0]).slice(0, 2).join("") || "·";
 
 export default function Equipo() {
   const { profile } = useAuth();
   const canEditTeam = ["Admin", "Direccion General", "Direccion de Area"].includes(profile?.role);
+  const canChangeRole = ["Admin", "Direccion de Area"].includes(profile?.role);
 
   const [members, setMembers] = useState([]);
   const [roles, setRoles] = useState([]);
+  const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterRole, setFilterRole] = useState("all");
   const [modalOpen, setModalOpen] = useState(false);
@@ -36,11 +38,16 @@ export default function Equipo() {
   const load = async () => {
     setLoading(true);
     try {
-      const [mRes, rRes] = await Promise.all([
+      const [mRes, rRes, aRes] = await Promise.all([
         supabase.from('team_members').select('*').order('created_at', { ascending: false }),
-        supabase.from('role_permissions').select('role').order('role')
+        supabase.from('role_permissions').select('role').order('role'),
+        supabase.from('areas').select('*')
       ]);
-      if (mRes.data) setMembers(mRes.data);
+      if (mRes.data) {
+        // Exclude profiles/team members with 'Cliente' role from appearing in Equipo list
+        setMembers(mRes.data.filter(m => m.role !== 'Cliente'));
+      }
+      if (aRes.data) setAreas(aRes.data);
       if (rRes.data) {
         // Excluir 'Cliente' de los roles de equipo
         const teamRoles = rRes.data.filter(r => r.role !== 'Cliente').map(r => r.role);
@@ -54,13 +61,31 @@ export default function Equipo() {
 
   const filtered = filterRole === "all" ? members : members.filter((m) => m.role === filterRole);
 
+  const getSelectableRoles = () => {
+    if (!editingId) return roles;
+    const member = members.find(m => m.id === editingId);
+    if (!member || !member.area_id) return ["Admin", "Direccion General", "Direccion de Area", "Usuario"];
+    
+    const area = areas.find(a => a.id === member.area_id);
+    const areaName = area ? area.name.toLowerCase() : "";
+
+    if (areaName.includes("penal")) {
+      return ["Abogado/a senior", "Abogado/a junior", "Prestador/a de servicio social", "Admin", "Direccion General", "Direccion de Area", "Usuario"];
+    } else if (areaName.includes("blindaje") || areaName.includes("preventivo")) {
+      return ["Abogado/a operativa", "Coordinador/a de Litigio Estrategico", "Auxiliar legal", "Director/a", "Abogado/a de Operacion Preventiva", "Admin", "Direccion General", "Direccion de Area", "Usuario"];
+    }
+    
+    return ["Admin", "Direccion General", "Direccion de Area", "Usuario"];
+  };
+
   const openEdit = (m) => {
     setEditingId(m.id);
     setForm({ 
       full_name: m.full_name, 
       role: m.role || (roles[0] || "Usuario"), 
       email: m.email || "", 
-      phone: m.phone || ""
+      phone: m.phone || "",
+      bio: m.bio || ""
     });
     setModalOpen(true);
   };
@@ -72,7 +97,8 @@ export default function Equipo() {
         full_name: form.full_name,
         role: form.role,
         email: form.email,
-        phone: form.phone
+        phone: form.phone,
+        bio: form.bio
       };
 
       if (editingId) {
@@ -82,7 +108,8 @@ export default function Equipo() {
           await supabase.from('profiles').update({
             full_name: payload.full_name,
             role: payload.role,
-            phone: payload.phone
+            phone: payload.phone,
+            bio: payload.bio
           }).eq('id', member.user_id);
         } else {
           // Update team_members standalone
@@ -148,19 +175,33 @@ export default function Equipo() {
           {filtered.length === 0 && <div className="col-span-full text-center py-16"><Users size={32} className="text-[#F5F5F3]/10 mx-auto mb-3" /><p className="text-[#F5F5F3]/20 text-sm">Sin miembros</p></div>}
         </div>
       )}
-
       {/* Edit Member Modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Editar Miembro del Equipo">
         <div className="space-y-4">
           <div><label className={labelCls}>Nombre Completo</label><input className={inputCls} value={form.full_name} onChange={(e) => setForm({ ...form, full_name: e.target.value })} placeholder="Lic. Juan Pérez" /></div>
           <div>
             <label className={labelCls}>Rol / Posición</label>
-            <select className={inputCls} value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}>
-              {roles.map((r) => <option key={r} value={r}>{r}</option>)}
+            <select 
+              className={inputCls} 
+              value={form.role} 
+              onChange={(e) => setForm({ ...form, role: e.target.value })}
+              disabled={!canChangeRole}
+            >
+               {getSelectableRoles().map((r) => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
           <div><label className={labelCls}>Email</label><input type="email" className={inputCls} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} placeholder="correo@firma.com" /></div>
           <div><label className={labelCls}>Teléfono</label><input className={inputCls} value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} placeholder="+52 55 1234 5678" /></div>
+          <div>
+            <label className={labelCls}>Extracto Curricular</label>
+            <textarea 
+              className={inputCls} 
+              rows={3} 
+              value={form.bio || ""} 
+              onChange={(e) => setForm({ ...form, bio: e.target.value })} 
+              placeholder="Ej. Especialista en derecho corporativo y penal..." 
+            />
+          </div>
           <button onClick={submit} disabled={!form.full_name || saving} className="w-full bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 disabled:opacity-30 hover:bg-[#A8841D] transition-colors">{saving ? "Guardando…" : "Guardar Cambios"}</button>
         </div>
       </Modal>
@@ -193,6 +234,13 @@ export default function Equipo() {
                 </div>
               )}
             </div>
+
+            {selectedMember.bio && (
+              <div className="pt-4 border-t border-[#1A1A1A]/40 text-left">
+                <p className="text-[#F5F5F3]/40 text-[9px] uppercase tracking-wider font-bold mb-1.5">Extracto Curricular</p>
+                <p className="text-[#F5F5F3]/80 text-xs leading-relaxed whitespace-pre-line bg-[#0F0F0F] border border-[#1A1A1A] p-3">{selectedMember.bio}</p>
+              </div>
+            )}
 
             <div className="pt-4 border-t border-[#1A1A1A]">
               <button 
