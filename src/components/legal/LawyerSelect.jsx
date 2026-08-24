@@ -9,8 +9,8 @@ export default function LawyerSelect({ members, selected, onChange }) {
       {members.length === 0 && <p className="text-[#F5F5F3]/20 text-[11px] px-2 py-1">Sin miembros del equipo</p>}
       {members.map((m) => (
         <label key={m.id} className="flex items-center gap-2 cursor-pointer hover:bg-[#1A1A1A] px-2 py-1">
-          <input type="checkbox" checked={selected.includes(m.name)} onChange={() => toggle(m.name)} className="accent-[#C9A227]" />
-          <span className="text-sm text-[#F5F5F3]/70">{m.name}</span>
+          <input type="checkbox" checked={selected.includes(m.full_name)} onChange={() => toggle(m.full_name)} className="accent-[#C9A227]" />
+          <span className="text-sm text-[#F5F5F3]/70">{m.full_name}</span>
         </label>
       ))}
     </div>
