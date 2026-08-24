@@ -30,6 +30,17 @@ const categoryIcons = {
 
 export default function Comentarios() {
   const { profile } = useAuth();
+  
+  if (profile?.role === "Cliente") {
+    return (
+      <div className="bg-[#080808] border border-red-500/20 p-10 text-center text-[#F5F5F3]/30">
+        <AlertCircle size={36} className="mx-auto mb-3 text-red-500 opacity-60" />
+        <p className="text-sm font-medium text-red-400">Acceso Denegado</p>
+        <p className="text-xs opacity-50 mt-2 max-w-md mx-auto">Los usuarios con rol de cliente no tienen permitido ingresar al foro de sugerencias y comentarios.</p>
+      </div>
+    );
+  }
+
   const [suggestions, setSuggestions] = useState([]);
   const [profiles, setProfiles] = useState([]);
   const [replies, setReplies] = useState([]);

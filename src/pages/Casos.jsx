@@ -104,6 +104,14 @@ export default function Casos() {
   };
 
   const submit = async () => {
+    if (!form.title.trim()) {
+      alert("Por favor ingresa un título para el caso.");
+      return;
+    }
+    if (!form.client_id) {
+      alert("Por favor selecciona un cliente para el caso.");
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
@@ -120,14 +128,22 @@ export default function Casos() {
         area_id: form.area_id || null
       };
 
+      let res;
       if (editingId) { 
-        await supabase.from('cases').update(payload).eq('id', editingId); 
+        res = await supabase.from('cases').update(payload).eq('id', editingId); 
       } else { 
-        await supabase.from('cases').insert([payload]); 
+        res = await supabase.from('cases').insert([payload]); 
       }
+      
+      if (res.error) throw res.error;
+      
       setModalOpen(false); setForm(EMPTY); setEditingId(null); load();
-    } catch (e) { console.error(e); }
-    finally { setSaving(false); }
+    } catch (e) { 
+      console.error(e); 
+      alert("Error al guardar el caso: " + (e.message || JSON.stringify(e)));
+    } finally { 
+      setSaving(false); 
+    }
   };
 
   const remove = async (c) => {

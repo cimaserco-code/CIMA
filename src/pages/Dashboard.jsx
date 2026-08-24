@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import { Briefcase, CheckSquare, Calendar, Users, ArrowUpRight, Clock } from "lucide-react";
 import PageHeader from "@/components/legal/PageHeader";
@@ -8,6 +8,10 @@ import { useAuth } from "@/lib/AuthContext";
 
 export default function Dashboard() {
   const { profile, permissions } = useAuth();
+  
+  if (profile?.role === "Cliente") {
+    return <Navigate to="/vista-cliente" replace />;
+  }
   const isAdmin = !!permissions?.can_view_all_cases;
 
   const [cases, setCases] = useState([]);

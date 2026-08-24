@@ -25,8 +25,7 @@ export default function PortalSidebar({ open, onClose }) {
   let items = [];
   if (isClientRole) {
     items = [
-      { label: "Mi Portal", icon: Contact, path: "/vista-cliente" },
-      { label: "Comentarios", icon: MessageSquare, path: "/comentarios" }
+      { label: "Mi Portal", icon: Contact, path: "/vista-cliente" }
     ];
   } else {
     items = navItems.filter(item => {
