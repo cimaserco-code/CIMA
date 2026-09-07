@@ -26,6 +26,7 @@ export default function Tareas() {
   const [tasks, setTasks] = useState([]);
   const [members, setMembers] = useState([]);
   const [cases, setCases] = useState([]);
+  const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -35,14 +36,16 @@ export default function Tareas() {
   const load = async () => {
     setLoading(true);
     try {
-      const [tRes, mRes, cRes] = await Promise.all([
+      const [tRes, mRes, cRes, aRes] = await Promise.all([
         supabase.from('tasks').select('*').order('created_at', { ascending: false }),
         supabase.from('team_members').select('*'),
-        supabase.from('cases').select('*')
+        supabase.from('cases').select('*'),
+        supabase.from('areas').select('*')
       ]);
       if (tRes.data) setTasks(tRes.data);
       if (mRes.data) setMembers(mRes.data);
       if (cRes.data) setCases(cRes.data);
+      if (aRes.data) setAreas(aRes.data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -122,6 +125,12 @@ export default function Tareas() {
     );
   }
 
+  const selectedCaseForTask = cases.find(c => c.id === form.case_id);
+  const activeTaskAreaId = selectedCaseForTask?.area_id || (!isAdmin ? profile?.area_id : null);
+  const eligibleLawyersForTask = activeTaskAreaId
+    ? members.filter(m => m.area_id === activeTaskAreaId || !m.area_id || ['Admin', 'Direccion General'].includes(m.role))
+    : members;
+
   return (
     <div>
       <PageHeader title="Tareas y Términos" subtitle={`${visibleTasks.filter((t) => t.status !== "completada").length} pendientes`} action={
@@ -190,10 +199,12 @@ export default function Tareas() {
             </select>
           </div>
           <div>
-            <label className={labelCls}>Abogado asignado</label>
+            <label className={labelCls}>
+              Abogado asignado {activeTaskAreaId && <span className="text-[#C9A227] font-normal normal-case">({areas.find(a => a.id === activeTaskAreaId)?.name})</span>}
+            </label>
             <select className={inputCls} value={form.assigned_lawyer} onChange={(e) => setForm({ ...form, assigned_lawyer: e.target.value })}>
               <option value="">Seleccionar abogado...</option>
-              {members.map((m) => <option key={m.id} value={m.full_name}>{m.full_name}</option>)}
+              {eligibleLawyersForTask.map((m) => <option key={m.id} value={m.full_name}>{m.full_name}</option>)}
             </select>
           </div>
           <div className="grid grid-cols-2 gap-3">

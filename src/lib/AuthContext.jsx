@@ -65,11 +65,15 @@ export const AuthProvider = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
   const profileRequestRef = useRef(0);
+  const userRef = useRef(null);
+  const profileRef = useRef(null);
 
   useEffect(() => {
     const handleSession = async (session) => {
       if (!session?.user) {
         profileRequestRef.current += 1;
+        userRef.current = null;
+        profileRef.current = null;
         setUser(null);
         setProfile(null);
         setPermissions(DEFAULT_PERMISSIONS);
@@ -78,9 +82,16 @@ export const AuthProvider = ({ children }) => {
         return;
       }
 
+      const isSameUser = userRef.current?.id === session.user.id;
+      userRef.current = session.user;
       setUser(session.user);
       setIsAuthenticated(true);
-      setIsLoadingAuth(true);
+
+      // Only show full loading spinner on initial boot or user switch, NOT on tab focus token refreshes
+      if (!isSameUser || !profileRef.current) {
+        setIsLoadingAuth(true);
+      }
+
       const requestId = await fetchProfile(session.user.id);
       if (requestId !== profileRequestRef.current) return;
       setIsLoadingAuth(false);
@@ -118,12 +129,14 @@ export const AuthProvider = ({ children }) => {
       if (requestId !== profileRequestRef.current) return requestId;
 
       setProfile(data);
+      profileRef.current = data;
       setPermissions(nextPermissions);
       return requestId;
     } catch (err) {
       console.error('Error fetching user profile:', err);
       if (requestId === profileRequestRef.current) {
         setProfile(null);
+        profileRef.current = null;
         setPermissions(DEFAULT_PERMISSIONS);
       }
       return requestId;

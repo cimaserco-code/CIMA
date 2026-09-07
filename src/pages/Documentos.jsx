@@ -163,14 +163,21 @@ export default function Documentos() {
         file_name: form.file_name
       };
 
+      let res;
       if (editingId) { 
-        await supabase.from('documents').update(payload).eq('id', editingId); 
+        res = await supabase.from('documents').update(payload).eq('id', editingId); 
       } else { 
-        await supabase.from('documents').insert([payload]); 
+        res = await supabase.from('documents').insert([payload]); 
       }
+      if (res.error) throw res.error;
+
       setModalOpen(false); setForm(EMPTY); setEditingId(null); load();
-    } catch (e) { console.error(e); }
-    finally { setSaving(false); }
+    } catch (e) { 
+      console.error(e); 
+      alert("Error al guardar el documento: " + (e.message || JSON.stringify(e)));
+    } finally { 
+      setSaving(false); 
+    }
   };
 
   const remove = async (d) => {
@@ -193,6 +200,12 @@ export default function Documentos() {
       </div>
     );
   }
+
+  const selectedCaseForDoc = cases.find(c => c.id === form.case_id);
+  const activeDocAreaId = selectedCaseForDoc?.area_id || (!isAdmin ? profile?.area_id : null);
+  const eligibleLawyersForDoc = activeDocAreaId
+    ? members.filter(m => m.area_id === activeDocAreaId || !m.area_id || ['Admin', 'Direccion General'].includes(m.role))
+    : members;
 
   return (
     <div>
@@ -282,10 +295,12 @@ export default function Documentos() {
             </select>
           </div>
           <div>
-            <label className={labelCls}>Abogado</label>
+            <label className={labelCls}>
+              Abogado {activeDocAreaId && <span className="text-[#C9A227] font-normal normal-case">({areas.find(a => a.id === activeDocAreaId)?.name})</span>}
+            </label>
             <select className={inputCls} value={form.lawyer} onChange={(e) => setForm({ ...form, lawyer: e.target.value })}>
               <option value="">Seleccionar abogado...</option>
-              {members.map((m) => <option key={m.id} value={m.full_name}>{m.full_name}</option>)}
+              {eligibleLawyersForDoc.map((m) => <option key={m.id} value={m.full_name}>{m.full_name}</option>)}
             </select>
           </div>
           <div>

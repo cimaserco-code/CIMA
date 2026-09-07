@@ -167,6 +167,11 @@ export default function Casos() {
     );
   }
 
+  const activeCaseAreaId = form.area_id || (!isAdmin ? profile?.area_id : null);
+  const eligibleMembersForCase = activeCaseAreaId
+    ? members.filter((m) => m.area_id === activeCaseAreaId || !m.area_id || ['Admin', 'Direccion General'].includes(m.role))
+    : members;
+
   return (
     <div>
       <PageHeader title="Casos" subtitle={`${filtered.length} casos visibles`} action={
@@ -267,7 +272,12 @@ export default function Casos() {
               {areas.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
           </div>
-          <div><label className={labelCls}>Abogados asignados</label><LawyerSelect members={members} selected={form.assigned_lawyer} onChange={(v) => setForm({ ...form, assigned_lawyer: v })} /></div>
+          <div>
+            <label className={labelCls}>
+              Abogados asignados {activeCaseAreaId && <span className="text-[#C9A227] font-normal normal-case">({areas.find(a => a.id === activeCaseAreaId)?.name})</span>}
+            </label>
+            <LawyerSelect members={eligibleMembersForCase} selected={form.assigned_lawyer} onChange={(v) => setForm({ ...form, assigned_lawyer: v })} />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className={labelCls}>Prioridad</label><select className={inputCls} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>{PRIORITIES.map((p) => <option key={p} value={p}>{cap(p)}</option>)}</select></div>
             <div><label className={labelCls}>Próx. audiencia</label><input type="date" className={inputCls} value={form.next_hearing} onChange={(e) => setForm({ ...form, next_hearing: e.target.value })} /></div>
