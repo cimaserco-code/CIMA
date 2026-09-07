@@ -61,7 +61,7 @@ export default function Comentarios() {
     try {
       const [sRes, pRes, rRes] = await Promise.all([
         supabase.from("suggestions").select("*").order("created_at", { ascending: false }),
-        supabase.from("profiles").select("id, full_name, role"),
+        supabase.from("profiles").select("id, full_name, role, avatar_url"),
         supabase.from("suggestion_replies").select("*").order("created_at", { ascending: true })
       ]);
       if (sRes.data) setSuggestions(sRes.data);
@@ -232,9 +232,17 @@ export default function Comentarios() {
                   
                   {/* Author profile */}
                   <div className="flex items-center gap-3 mt-4">
-                    <div className="w-8 h-8 bg-[#C9A227] flex items-center justify-center text-[#080808] text-xs font-semibold">
-                      {getInitials(getProfile(selectedSuggestion.user_id).full_name)}
-                    </div>
+                    {getProfile(selectedSuggestion.user_id).avatar_url ? (
+                      <img 
+                        src={getProfile(selectedSuggestion.user_id).avatar_url} 
+                        alt="Avatar" 
+                        className="w-8 h-8 rounded-full object-cover border border-[#C9A227]/40 flex-shrink-0" 
+                      />
+                    ) : (
+                      <div className="w-8 h-8 bg-[#C9A227] flex items-center justify-center text-[#080808] text-xs font-semibold flex-shrink-0">
+                        {getInitials(getProfile(selectedSuggestion.user_id).full_name)}
+                      </div>
+                    )}
                     <div>
                       <p className="text-[#F5F5F3] text-xs font-medium">{getProfile(selectedSuggestion.user_id).full_name}</p>
                       <p className="text-[#F5F5F3]/30 text-[9px] uppercase tracking-wider">{getProfile(selectedSuggestion.user_id).role}</p>
@@ -252,9 +260,17 @@ export default function Comentarios() {
                   <div className="space-y-4 max-h-[300px] overflow-y-auto pr-1">
                     {selectedReplies.map(r => (
                       <div key={r.id} className="flex gap-3 bg-[#0F0F0F] border border-[#1A1A1A]/50 p-4">
-                        <div className="w-7 h-7 bg-[#C9A227]/20 border border-[#C9A227]/30 flex items-center justify-center text-[#C9A227] text-xs font-semibold flex-shrink-0">
-                          {getInitials(getProfile(r.user_id).full_name)}
-                        </div>
+                        {getProfile(r.user_id).avatar_url ? (
+                          <img 
+                            src={getProfile(r.user_id).avatar_url} 
+                            alt="Avatar" 
+                            className="w-7 h-7 rounded-full object-cover border border-[#C9A227]/30 flex-shrink-0" 
+                          />
+                        ) : (
+                          <div className="w-7 h-7 bg-[#C9A227]/20 border border-[#C9A227]/30 flex items-center justify-center text-[#C9A227] text-xs font-semibold flex-shrink-0">
+                            {getInitials(getProfile(r.user_id).full_name)}
+                          </div>
+                        )}
                         <div className="flex-1 min-w-0">
                           <div className="flex justify-between items-center mb-1">
                             <span className="text-[#F5F5F3] text-xs font-medium">{getProfile(r.user_id).full_name}</span>

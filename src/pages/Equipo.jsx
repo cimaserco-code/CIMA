@@ -61,6 +61,32 @@ export default function Equipo() {
 
   const filtered = filterRole === "all" ? members : members.filter((m) => m.role === filterRole);
 
+  const getMemberAreaInfo = (member) => {
+    if (!member) return { name: "Sin Área", tag: "SIN ÁREA", type: "general" };
+    const area = areas.find(a => a.id === member.area_id);
+    if (area) {
+      const nameLower = area.name.toLowerCase();
+      if (nameLower.includes("blindaje") || nameLower.includes("preventivo") || nameLower.includes("blp")) {
+        return { name: "Blindaje Legal Preventivo (BLP)", tag: "BLP", type: "blp" };
+      }
+      if (nameLower.includes("penal") || nameLower.includes("legal")) {
+        return { name: "Legal / Penal", tag: "LEGAL", type: "legal" };
+      }
+      return { name: area.name, tag: area.name.toUpperCase(), type: "other" };
+    }
+    
+    // Inferencia por rol si no tiene area_id
+    const roleLower = (member.role || "").toLowerCase();
+    if (["operativa", "litigio estrategico", "auxiliar legal", "operacion preventiva"].some(r => roleLower.includes(r))) {
+      return { name: "Blindaje Legal Preventivo (BLP)", tag: "BLP", type: "blp" };
+    }
+    if (["senior", "junior", "servicio social"].some(r => roleLower.includes(r))) {
+      return { name: "Legal / Penal", tag: "LEGAL", type: "legal" };
+    }
+
+    return { name: "General / Sin Área Asignada", tag: "GENERAL", type: "general" };
+  };
+
   const getSelectableRoles = () => {
     if (!editingId) return roles;
     const member = members.find(m => m.id === editingId);
@@ -145,13 +171,35 @@ export default function Equipo() {
             >
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-start gap-4 flex-1 min-w-0">
-                  <div className="w-11 h-11 bg-[#C9A227] flex items-center justify-center text-[#080808] text-sm font-semibold flex-shrink-0">
-                    {initials(m.full_name)}
-                  </div>
+                  {m.avatar_url ? (
+                    <img 
+                      src={m.avatar_url} 
+                      alt={m.full_name} 
+                      className="w-11 h-11 object-cover border border-[#C9A227]/40 flex-shrink-0" 
+                    />
+                  ) : (
+                    <div className="w-11 h-11 bg-[#C9A227] flex items-center justify-center text-[#080808] text-sm font-semibold flex-shrink-0">
+                      {initials(m.full_name)}
+                    </div>
+                  )}
                   <div className="min-w-0 flex-1">
                     <p className="text-[#F5F5F3] text-sm font-medium group-hover:text-[#C9A227] transition-colors">{m.full_name}</p>
-                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                       <span className={`text-[9px] tracking-wider uppercase px-2 py-0.5 ${roleColors[m.role?.toLowerCase()] || "text-[#F5F5F3]/40 bg-[#F5F5F3]/5 border border-[#1A1A1A]"}`}>{m.role}</span>
+                      {(() => {
+                        const areaInfo = getMemberAreaInfo(m);
+                        return (
+                          <span className={`text-[8px] font-semibold tracking-wider uppercase px-1.5 py-0.5 border ${
+                            areaInfo.type === 'blp'
+                              ? 'text-cyan-400 bg-cyan-400/10 border-cyan-400/30'
+                              : areaInfo.type === 'legal'
+                              ? 'text-[#C9A227] bg-[#C9A227]/10 border-[#C9A227]/30'
+                              : 'text-[#F5F5F3]/40 bg-[#F5F5F3]/5 border-[#1A1A1A]'
+                          }`}>
+                            {areaInfo.tag}
+                          </span>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
@@ -211,12 +259,36 @@ export default function Equipo() {
         {selectedMember && (
           <div className="space-y-5">
             <div className="flex items-center gap-4 pb-4 border-b border-[#1A1A1A]">
-              <div className="w-16 h-16 bg-[#C9A227] flex items-center justify-center text-[#080808] text-lg font-semibold">
-                {initials(selectedMember.full_name)}
-              </div>
+              {selectedMember.avatar_url ? (
+                <img 
+                  src={selectedMember.avatar_url} 
+                  alt={selectedMember.full_name} 
+                  className="w-16 h-16 object-cover border border-[#C9A227]/50 flex-shrink-0" 
+                />
+              ) : (
+                <div className="w-16 h-16 bg-[#C9A227] flex items-center justify-center text-[#080808] text-lg font-semibold flex-shrink-0">
+                  {initials(selectedMember.full_name)}
+                </div>
+              )}
               <div>
                 <h3 className="text-[#F5F5F3] text-lg font-heading">{selectedMember.full_name}</h3>
-                <span className={`inline-block text-[9px] tracking-wider uppercase px-2.5 py-0.5 mt-1 border ${roleColors[selectedMember.role?.toLowerCase()] || "text-[#F5F5F3]/40 bg-[#F5F5F3]/5 border border-[#1A1A1A]"}`}>{selectedMember.role}</span>
+                <div className="flex items-center gap-2 mt-2 flex-wrap">
+                  <span className={`inline-block text-[9px] tracking-wider uppercase px-2.5 py-0.5 border ${roleColors[selectedMember.role?.toLowerCase()] || "text-[#F5F5F3]/40 bg-[#F5F5F3]/5 border border-[#1A1A1A]"}`}>{selectedMember.role}</span>
+                  {(() => {
+                    const areaInfo = getMemberAreaInfo(selectedMember);
+                    return (
+                      <span className={`inline-block text-[9px] font-semibold tracking-wider uppercase px-2.5 py-0.5 border ${
+                        areaInfo.type === 'blp'
+                          ? 'text-cyan-400 bg-cyan-400/10 border-cyan-400/40'
+                          : areaInfo.type === 'legal'
+                          ? 'text-[#C9A227] bg-[#C9A227]/10 border-[#C9A227]/40'
+                          : 'text-[#F5F5F3]/50 bg-[#F5F5F3]/5 border-[#1A1A1A]'
+                      }`}>
+                        {areaInfo.name}
+                      </span>
+                    );
+                  })()}
+                </div>
               </div>
             </div>
             

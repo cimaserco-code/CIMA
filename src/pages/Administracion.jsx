@@ -345,7 +345,15 @@ export default function Administracion() {
               {filtered.map((u) => (
                 <div key={u.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 px-5 py-4 border-b border-[#1A1A1A] last:border-0 items-center hover:bg-[#0F0F0F] transition-colors">
                   <div className="md:col-span-3 flex items-center gap-3">
-                    <div className="w-9 h-9 bg-[#C9A227] flex items-center justify-center text-[#080808] text-xs font-semibold flex-shrink-0">{(u.full_name || u.email || "?").charAt(0).toUpperCase()}</div>
+                    {u.avatar_url ? (
+                      <img 
+                        src={u.avatar_url} 
+                        alt="Avatar" 
+                        className="w-9 h-9 object-cover border border-[#C9A227]/40 flex-shrink-0" 
+                      />
+                    ) : (
+                      <div className="w-9 h-9 bg-[#C9A227] flex items-center justify-center text-[#080808] text-xs font-semibold flex-shrink-0">{(u.full_name || u.email || "?").charAt(0).toUpperCase()}</div>
+                    )}
                     <div className="min-w-0">
                       <p className="text-[#F5F5F3] text-sm truncate">{u.full_name || "Sin nombre"}</p>
                       <p className="text-[#F5F5F3]/20 text-[10px] md:hidden truncate flex items-center gap-1"><Mail size={10} />{u.email}</p>
@@ -594,7 +602,15 @@ export default function Administracion() {
         {editingUser && (
           <div className="space-y-5">
             <div className="flex items-center gap-3 pb-4 border-b border-[#1A1A1A]">
-              <div className="w-12 h-12 bg-[#C9A227] flex items-center justify-center text-[#080808] text-sm font-semibold">{(editingUser.full_name || editingUser.email || "?").charAt(0).toUpperCase()}</div>
+              {editingUser.avatar_url ? (
+                <img 
+                  src={editingUser.avatar_url} 
+                  alt="Avatar" 
+                  className="w-12 h-12 object-cover border border-[#C9A227]/40 flex-shrink-0" 
+                />
+              ) : (
+                <div className="w-12 h-12 bg-[#C9A227] flex items-center justify-center text-[#080808] text-sm font-semibold flex-shrink-0">{(editingUser.full_name || editingUser.email || "?").charAt(0).toUpperCase()}</div>
+              )}
               <div className="min-w-0">
                 <p className="text-[#F5F5F3] text-sm">{editingUser.full_name || "Sin nombre"}</p>
                 <p className="text-[#F5F5F3]/30 text-xs truncate">{editingUser.email}</p>

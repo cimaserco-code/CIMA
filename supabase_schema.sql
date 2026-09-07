@@ -70,14 +70,15 @@ BEGIN
     DELETE FROM public.team_members WHERE user_id = NEW.id;
   ELSE
     -- Para cualquier otro rol, lo insertamos o actualizamos en team_members
-    INSERT INTO public.team_members (full_name, email, user_id, role, bio, area_id)
-    VALUES (NEW.full_name, NEW.email, NEW.id, NEW.role, NEW.bio, NEW.area_id)
+    INSERT INTO public.team_members (full_name, email, user_id, role, bio, area_id, avatar_url)
+    VALUES (NEW.full_name, NEW.email, NEW.id, NEW.role, NEW.bio, NEW.area_id, NEW.avatar_url)
     ON CONFLICT (email) DO UPDATE 
     SET full_name = EXCLUDED.full_name, 
         user_id = EXCLUDED.user_id,
         role = EXCLUDED.role,
         bio = EXCLUDED.bio,
-        area_id = EXCLUDED.area_id;
+        area_id = EXCLUDED.area_id,
+        avatar_url = EXCLUDED.avatar_url;
   END IF;
   RETURN NEW;
 END;
@@ -97,6 +98,7 @@ CREATE TABLE IF NOT EXISTS public.team_members (
   user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
   bio TEXT,
   area_id UUID REFERENCES public.areas(id) ON DELETE SET NULL,
+  avatar_url TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -311,6 +313,9 @@ ALTER TABLE public.suggestion_replies ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Permitir acceso total en suggestions" ON public.suggestions FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "Permitir acceso total en replies" ON public.suggestion_replies FOR ALL USING (auth.role() = 'authenticated');
 
--- Configuración del Storage de Supabase para documentos
+-- Configuración del Storage de Supabase para documentos y avatares
 INSERT INTO storage.buckets (id, name, public) VALUES ('documents', 'documents', true) ON CONFLICT (id) DO NOTHING;
 CREATE POLICY "Public Document Storage Access" ON storage.objects FOR ALL USING (bucket_id = 'documents');
+
+INSERT INTO storage.buckets (id, name, public) VALUES ('avatars', 'avatars', true) ON CONFLICT (id) DO NOTHING;
+CREATE POLICY "Public Avatar Storage Access" ON storage.objects FOR ALL USING (bucket_id = 'avatars');

@@ -17,7 +17,7 @@ const navItems = [
 
 const adminItem = { label: "Administración", icon: Shield, path: "/administracion" };
 
-export default function PortalSidebar({ open, onClose }) {
+export default function PortalSidebar({ open, onClose, onOpenProfile }) {
   const { user, profile, permissions, logout } = useAuth();
 
   const isClientRole = profile?.role === 'Cliente';
@@ -75,14 +75,28 @@ export default function PortalSidebar({ open, onClose }) {
         </nav>
         <div className="p-4 border-t border-[#1A1A1A]">
           <div className="flex items-center gap-3 px-2">
-            <div className="w-9 h-9 bg-[#C9A227] flex items-center justify-center text-[#080808] text-xs font-semibold">
-              {(profile?.full_name || user?.email || "·").charAt(0).toUpperCase()}
+            <div 
+              onClick={onOpenProfile}
+              className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer group/profile hover:opacity-85 transition-opacity"
+              title="Mi Cuenta"
+            >
+              {profile?.avatar_url ? (
+                <img 
+                  src={profile.avatar_url} 
+                  alt="Avatar" 
+                  className="w-9 h-9 rounded-full object-cover border border-[#C9A227]/40 flex-shrink-0" 
+                />
+              ) : (
+                <div className="w-9 h-9 bg-[#C9A227] flex items-center justify-center text-[#080808] text-xs font-semibold group-hover/profile:bg-[#A8841D] transition-colors flex-shrink-0">
+                  {(profile?.full_name || user?.email || "·").charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <p className="text-[#F5F5F3] text-xs font-medium truncate group-hover/profile:text-[#C9A227] transition-colors">{profile?.full_name || user?.email || "Usuario"}</p>
+                <p className="text-[#F5F5F3]/30 text-[10px]">{profile?.role || "Usuario"}</p>
+              </div>
             </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-[#F5F5F3] text-xs font-medium truncate">{profile?.full_name || user?.email || "Usuario"}</p>
-              <p className="text-[#F5F5F3]/30 text-[10px]">{profile?.role || "Usuario"}</p>
-            </div>
-            <button onClick={logout} className="text-[#F5F5F3]/30 hover:text-[#F5F5F3]"><LogOut size={15} /></button>
+            <button onClick={logout} className="text-[#F5F5F3]/30 hover:text-[#F5F5F3]" title="Cerrar sesión"><LogOut size={15} /></button>
           </div>
         </div>
       </aside>

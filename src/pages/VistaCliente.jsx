@@ -254,9 +254,17 @@ export default function VistaCliente() {
               <div className="space-y-3 overflow-y-auto flex-1 pr-1 scrollbar-thin">
                 {clientLawyers.map(m => (
                   <div key={m.id} className="p-4 bg-[#0F0F0F] border border-[#1A1A1A] text-left flex gap-3 items-center">
-                    <div className="w-10 h-10 bg-[#C9A227]/10 border border-[#C9A227]/20 flex items-center justify-center text-[#C9A227] text-xs font-semibold flex-shrink-0">
-                      {initials(m.full_name)}
-                    </div>
+                    {m.avatar_url ? (
+                      <img 
+                        src={m.avatar_url} 
+                        alt={m.full_name} 
+                        className="w-10 h-10 object-cover border border-[#C9A227]/40 flex-shrink-0" 
+                      />
+                    ) : (
+                      <div className="w-10 h-10 bg-[#C9A227]/10 border border-[#C9A227]/20 flex items-center justify-center text-[#C9A227] text-xs font-semibold flex-shrink-0">
+                        {initials(m.full_name)}
+                      </div>
+                    )}
                     <div className="min-w-0 flex-1">
                       <h4 className="text-[#F5F5F3] text-xs font-medium truncate">{m.full_name}</h4>
                       <p className="text-[#F5F5F3]/30 text-[8px] uppercase tracking-wider">{m.role}</p>
