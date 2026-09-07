@@ -33,6 +33,31 @@ const DEFAULT_PERMISSIONS = {
   can_delete_clients: false
 };
 
+const ADMIN_PERMISSIONS = {
+  can_manage_users: true,
+  can_view_all_cases: true,
+  can_view_cases: true,
+  can_create_cases: true,
+  can_edit_cases: true,
+  can_delete_cases: true,
+  can_view_tasks: true,
+  can_create_tasks: true,
+  can_edit_tasks: true,
+  can_delete_tasks: true,
+  can_view_documents: true,
+  can_create_documents: true,
+  can_edit_documents: true,
+  can_delete_documents: true,
+  can_view_fees: true,
+  can_create_fees: true,
+  can_edit_fees: true,
+  can_delete_fees: true,
+  can_view_clients: true,
+  can_create_clients: true,
+  can_edit_clients: true,
+  can_delete_clients: true
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [profile, setProfile] = useState(null);
@@ -106,12 +131,18 @@ export const AuthProvider = ({ children }) => {
   };
 
   const fetchRolePermissions = async (role) => {
+    if (!role) return DEFAULT_PERMISSIONS;
+    const cleanRole = String(role).trim();
+    if (cleanRole.toLowerCase() === 'admin' || cleanRole.toLowerCase() === 'direccion general') {
+      return ADMIN_PERMISSIONS;
+    }
+
     try {
       const { data, error } = await supabase
         .from('role_permissions')
         .select('*')
-        .eq('role', role)
-        .single();
+        .ilike('role', cleanRole)
+        .maybeSingle();
 
       return !error && data ? data : DEFAULT_PERMISSIONS;
     } catch (err) {

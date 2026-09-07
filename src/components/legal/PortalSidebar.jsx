@@ -41,7 +41,8 @@ export default function PortalSidebar({ open, onClose, onOpenProfile }) {
     });
     
     // Add adminItem if permitted
-    if (permissions?.can_manage_users) {
+    const isFullAdmin = ['admin', 'direccion general'].includes(profile?.role?.toLowerCase());
+    if (permissions?.can_manage_users || isFullAdmin) {
       items.push(adminItem);
     }
   }
