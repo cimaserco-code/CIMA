@@ -1,4 +1,4 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 const AuthContext = createContext();
@@ -39,31 +39,36 @@ export const AuthProvider = ({ children }) => {
   const [permissions, setPermissions] = useState(DEFAULT_PERMISSIONS);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+  const profileRequestRef = useRef(0);
 
   useEffect(() => {
-    // Escuchar cambios de sesión en Supabase
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-        setIsAuthenticated(true);
-        fetchProfile(session.user.id);
-      } else {
+    const handleSession = async (session) => {
+      if (!session?.user) {
+        profileRequestRef.current += 1;
         setUser(null);
         setProfile(null);
         setPermissions(DEFAULT_PERMISSIONS);
         setIsAuthenticated(false);
+        setIsLoadingAuth(false);
+        return;
       }
-      setIsLoadingAuth(false);
-    });
 
-    // Cargar sesión inicial
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(session.user);
-        setIsAuthenticated(true);
-        fetchProfile(session.user.id);
-      }
+      setUser(session.user);
+      setIsAuthenticated(true);
+      setIsLoadingAuth(true);
+      const requestId = await fetchProfile(session.user.id);
+      if (requestId !== profileRequestRef.current) return;
       setIsLoadingAuth(false);
+    };
+
+    // Cargar la sesión inicial; INITIAL_SESSION se ignora para evitar una segunda carga.
+    supabase.auth.getSession().then(({ data: { session } }) => handleSession(session));
+
+    // Escuchar cambios posteriores de sesión en Supabase.
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event !== 'INITIAL_SESSION') {
+        handleSession(session);
+      }
     });
 
     return () => {
@@ -72,6 +77,8 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const fetchProfile = async (userId) => {
+    const requestId = ++profileRequestRef.current;
+
     try {
       const { data, error } = await supabase
         .from('profiles')
@@ -79,12 +86,22 @@ export const AuthProvider = ({ children }) => {
         .eq('id', userId)
         .single();
 
-      if (!error && data) {
-        setProfile(data);
-        await fetchRolePermissions(data.role);
-      }
+      if (error) throw error;
+      if (requestId !== profileRequestRef.current) return;
+
+      const nextPermissions = await fetchRolePermissions(data.role);
+      if (requestId !== profileRequestRef.current) return requestId;
+
+      setProfile(data);
+      setPermissions(nextPermissions);
+      return requestId;
     } catch (err) {
       console.error('Error fetching user profile:', err);
+      if (requestId === profileRequestRef.current) {
+        setProfile(null);
+        setPermissions(DEFAULT_PERMISSIONS);
+      }
+      return requestId;
     }
   };
 
@@ -96,13 +113,10 @@ export const AuthProvider = ({ children }) => {
         .eq('role', role)
         .single();
 
-      if (!error && data) {
-        setPermissions(data);
-      } else {
-        setPermissions(DEFAULT_PERMISSIONS);
-      }
+      return !error && data ? data : DEFAULT_PERMISSIONS;
     } catch (err) {
       console.error('Error fetching role permissions:', err);
+      return DEFAULT_PERMISSIONS;
     }
   };
 
