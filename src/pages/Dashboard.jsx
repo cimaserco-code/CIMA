@@ -6,6 +6,19 @@ import PageHeader from "@/components/legal/PageHeader";
 import StatCard from "@/components/legal/StatCard";
 import { useAuth } from "@/lib/AuthContext";
 
+function parseLocalDate(dateStrOrObj) {
+  if (!dateStrOrObj) return new Date();
+  if (dateStrOrObj instanceof Date) return dateStrOrObj;
+  if (typeof dateStrOrObj === "string") {
+    const match = dateStrOrObj.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (match) {
+      const [_, y, m, d] = match;
+      return new Date(parseInt(y, 10), parseInt(m, 10) - 1, parseInt(d, 10));
+    }
+  }
+  return new Date(dateStrOrObj);
+}
+
 export default function Dashboard() {
   const { profile, permissions } = useAuth();
   
@@ -53,9 +66,28 @@ export default function Dashboard() {
   const activeCasesCount = visibleCases.filter((c) => c.status === "activo" || c.status === "en_proceso").length;
   const pendingTasksCount = visibleTasks.filter((t) => t.status !== "completada").length;
   
-  const upcomingEvents = visibleEvents.filter((e) => new Date(e.event_date) >= new Date()).slice(0, 5);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  const upcomingEvents = visibleEvents
+    .filter((e) => parseLocalDate(e.event_date) >= today)
+    .sort((a, b) => {
+      const dateDiff = parseLocalDate(a.event_date) - parseLocalDate(b.event_date);
+      if (dateDiff !== 0) return dateDiff;
+      const tA = (a.event_time || "").trim();
+      const tB = (b.event_time || "").trim();
+      if (tA && tB) return tA.localeCompare(tB);
+      if (tA && !tB) return -1;
+      if (!tA && tB) return 1;
+      return (a.title || "").localeCompare(b.title || "");
+    })
+    .slice(0, 6);
+
   const recentCases = visibleCases.slice(0, 5);
-  const upcomingTasks = visibleTasks.filter((t) => t.status !== "completada").sort((a, b) => new Date(a.due_date || "2999") - new Date(b.due_date || "2999")).slice(0, 5);
+  const upcomingTasks = visibleTasks
+    .filter((t) => t.status !== "completada")
+    .sort((a, b) => parseLocalDate(a.due_date || "2999-12-31") - parseLocalDate(b.due_date || "2999-12-31"))
+    .slice(0, 5);
 
   const statusColors = { activo: "text-[#C9A227]", en_proceso: "text-yellow-400", en_espera: "text-[#F5F5F3]/40", cerrado: "text-green-400", archivado: "text-[#F5F5F3]/20" };
   const priorityColors = { urgente: "text-red-500", alta: "text-red-400", media: "text-yellow-400", baja: "text-[#F5F5F3]/40" };
@@ -83,17 +115,45 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-[2px] mb-8">
+        <StatCard label="Próximos Eventos" value={upcomingEvents.length} icon={Calendar} />
         <StatCard label="Casos Activos" value={activeCasesCount} icon={Briefcase} />
         <StatCard label="Tareas y Términos Pendientes" value={pendingTasksCount} icon={CheckSquare} />
-        <StatCard label="Próximos Eventos" value={upcomingEvents.length} icon={Calendar} />
         <StatCard label="Miembros" value={members.length} icon={Users} />
       </div>
 
+      {/* 1. Próximos Eventos */}
+      <div className="bg-[#080808] border border-[#1A1A1A] p-6 mb-6">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-[#F5F5F3] text-sm font-heading tracking-wide">Próximos Eventos</h2>
+          <Link to="/calendario" className="text-[#C9A227] text-[10px] tracking-wider uppercase flex items-center gap-1 hover:gap-2 transition-all">
+            Ver calendario <ArrowUpRight size={12} />
+          </Link>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[2px]">
+          {upcomingEvents.map((e) => (
+            <div key={e.id} className="bg-[#0F0F0F] border border-[#1A1A1A] p-4 group hover:border-[#C9A227]/40 transition-colors">
+              <p className="text-[#C9A227] text-[10px] tracking-wider uppercase mb-2 font-medium">{e.event_type}</p>
+              <p className="text-[#F5F5F3] text-sm font-medium truncate">{e.title}</p>
+              <p className="text-[#F5F5F3]/40 text-[11px] mt-2 flex items-center gap-1.5">
+                <Clock size={11} className="text-[#C9A227]" />
+                {parseLocalDate(e.event_date).toLocaleDateString("es", { weekday: 'short', day: 'numeric', month: 'short' })}
+                {e.event_time ? ` · ${e.event_time}` : ""}
+              </p>
+            </div>
+          ))}
+          {upcomingEvents.length === 0 && <p className="text-[#F5F5F3]/20 text-sm">Sin eventos próximos</p>}
+        </div>
+      </div>
+
+      {/* 2. Casos Recientes & 3. Tareas y Términos */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-[2px]">
+        {/* Casos Recientes */}
         <div className="bg-[#080808] border border-[#1A1A1A] p-6">
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-[#F5F5F3] text-sm font-heading tracking-wide">Casos Recientes</h2>
-            <Link to="/casos" className="text-[#C9A227] text-[10px] tracking-wider uppercase flex items-center gap-1 hover:gap-2 transition-all">Ver todos <ArrowUpRight size={12} /></Link>
+            <Link to="/casos" className="text-[#C9A227] text-[10px] tracking-wider uppercase flex items-center gap-1 hover:gap-2 transition-all">
+              Ver todos <ArrowUpRight size={12} />
+            </Link>
           </div>
           <div className="space-y-3">
             {recentCases.map((c) => (
@@ -108,10 +168,13 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* Tareas y Términos */}
         <div className="bg-[#080808] border border-[#1A1A1A] p-6">
           <div className="flex items-center justify-between mb-5">
-            <h2 className="text-[#F5F5F3] text-sm font-heading tracking-wide">Tareas y Términos Próximos</h2>
-            <Link to="/tareas" className="text-[#C9A227] text-[10px] tracking-wider uppercase flex items-center gap-1 hover:gap-2 transition-all">Ver todas <ArrowUpRight size={12} /></Link>
+            <h2 className="text-[#F5F5F3] text-sm font-heading tracking-wide">Tareas y Términos</h2>
+            <Link to="/tareas" className="text-[#C9A227] text-[10px] tracking-wider uppercase flex items-center gap-1 hover:gap-2 transition-all">
+              Ver todas <ArrowUpRight size={12} />
+            </Link>
           </div>
           <div className="space-y-3">
             {upcomingTasks.map((t) => (
@@ -120,7 +183,10 @@ export default function Dashboard() {
                   <Clock size={14} className="text-[#F5F5F3]/20 flex-shrink-0" />
                   <div className="min-w-0">
                     <p className="text-[#F5F5F3] text-sm truncate">{t.title}</p>
-                    <p className="text-[#F5F5F3]/30 text-[11px]">{t.assigned_lawyer || "Sin asignar"}{t.due_date ? ` · ${new Date(t.due_date).toLocaleDateString("es")}` : ""}</p>
+                    <p className="text-[#F5F5F3]/30 text-[11px]">
+                      {t.assigned_lawyer || "Sin asignar"}
+                      {t.due_date ? ` · ${parseLocalDate(t.due_date).toLocaleDateString("es")}` : ""}
+                    </p>
                   </div>
                 </div>
                 <span className={`text-[10px] tracking-wider uppercase ${priorityColors[t.urgency] || "text-[#F5F5F3]/30"}`}>{t.urgency}</span>
@@ -128,23 +194,6 @@ export default function Dashboard() {
             ))}
             {upcomingTasks.length === 0 && <p className="text-[#F5F5F3]/20 text-sm">Sin tareas pendientes</p>}
           </div>
-        </div>
-      </div>
-
-      <div className="bg-[#080808] border border-[#1A1A1A] p-6 mt-[2px]">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-[#F5F5F3] text-sm font-heading tracking-wide">Próximos Eventos</h2>
-          <Link to="/calendario" className="text-[#C9A227] text-[10px] tracking-wider uppercase flex items-center gap-1 hover:gap-2 transition-all">Ver calendario <ArrowUpRight size={12} /></Link>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[2px]">
-          {upcomingEvents.map((e) => (
-            <div key={e.id} className="bg-[#0F0F0F] border border-[#1A1A1A] p-4">
-              <p className="text-[#C9A227] text-[10px] tracking-wider uppercase mb-2">{e.event_type}</p>
-              <p className="text-[#F5F5F3] text-sm">{e.title}</p>
-              <p className="text-[#F5F5F3]/30 text-[11px] mt-2">{new Date(e.event_date).toLocaleDateString("es")}{e.event_time ? ` · ${e.event_time}` : ""}</p>
-            </div>
-          ))}
-          {upcomingEvents.length === 0 && <p className="text-[#F5F5F3]/20 text-sm">Sin eventos próximos</p>}
         </div>
       </div>
     </div>

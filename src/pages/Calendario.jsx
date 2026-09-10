@@ -62,6 +62,39 @@ function isSameDay(a, b) {
   return da.getFullYear() === db.getFullYear() && da.getMonth() === db.getMonth() && da.getDate() === db.getDate();
 }
 
+function normalizeTime(timeStr) {
+  if (!timeStr) return null;
+  const parts = String(timeStr).trim().split(":");
+  if (parts.length >= 2) {
+    const hours = parts[0].padStart(2, "0");
+    const minutes = parts[1].padStart(2, "0");
+    return `${hours}:${minutes}`;
+  }
+  return String(timeStr).trim();
+}
+
+function compareEvents(a, b) {
+  // 1. Order by date first
+  const dateDiff = parseLocalDate(a.event_date) - parseLocalDate(b.event_date);
+  if (dateDiff !== 0) return dateDiff;
+
+  // 2. If same date, order by time (earliest first, e.g. 08:00 before 14:00)
+  const tA = normalizeTime(a.event_time);
+  const tB = normalizeTime(b.event_time);
+
+  if (tA && tB) {
+    const timeDiff = tA.localeCompare(tB);
+    if (timeDiff !== 0) return timeDiff;
+  } else if (tA && !tB) {
+    return -1; // Events with defined time go before events with no time
+  } else if (!tA && tB) {
+    return 1;
+  }
+
+  // 3. Fallback: alphabetical order by title
+  return (a.title || "").localeCompare(b.title || "");
+}
+
 function getMonthMatrix(year, month) {
   const first = new Date(year, month, 1);
   const dayOfWeek = (first.getDay() + 6) % 7;
@@ -124,11 +157,11 @@ export default function Calendario() {
   const visibleEvents = events.filter(e => !e.case_id || visibleCases.some(c => c.id === e.case_id));
 
   const filtered = filterType === "all" ? visibleEvents : visibleEvents.filter((e) => e.event_type === filterType);
-  const allSorted = [...filtered].sort((a, b) => parseLocalDate(a.event_date) - parseLocalDate(b.event_date));
+  const allSorted = [...filtered].sort(compareEvents);
   const grouped = allSorted.reduce((acc, e) => { const day = formatDate(e.event_date); if (!acc[day]) acc[day] = []; acc[day].push(e); return acc; }, {});
 
   const monthMatrix = getMonthMatrix(cursor.getFullYear(), cursor.getMonth());
-  const eventsForDay = (date) => filtered.filter((e) => isSameDay(e.event_date, date));
+  const eventsForDay = (date) => filtered.filter((e) => isSameDay(e.event_date, date)).sort(compareEvents);
 
   // Lawyer area filtering when assigning in modal:
   const selectedCaseForEvent = cases.find(c => c.id === form.case_id);

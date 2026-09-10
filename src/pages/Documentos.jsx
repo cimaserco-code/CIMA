@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, FileText, Download, Upload, Pencil, Trash2 } from "lucide-react";
+import { Plus, FileText, Download, Upload, Pencil, Trash2, Search, Eye, ExternalLink, X } from "lucide-react";
 import PageHeader from "@/components/legal/PageHeader";
 import Modal from "@/components/legal/Modal";
 import { useAuth } from "@/lib/AuthContext";
@@ -32,6 +32,17 @@ const statusColors = { borrador: "text-[#F5F5F3]/40 bg-[#F5F5F3]/5", editado: "t
 
 const EMPTY = { title: "", doc_type: "contrato", amparo_type: "directo", case_id: "", lawyer: "", status: "borrador", file_url: "", file_name: "" };
 
+function getFileType(doc) {
+  if (!doc) return "unknown";
+  const nameOrUrl = (doc.file_name || doc.file_url || "").toLowerCase();
+  if (nameOrUrl.endsWith(".pdf") || nameOrUrl.includes(".pdf")) return "pdf";
+  if (nameOrUrl.match(/\.(png|jpe?g|webp|gif|svg)(\?.*)?$/)) return "image";
+  if (nameOrUrl.match(/\.(docx?|odt)(\?.*)?$/)) return "word";
+  if (nameOrUrl.match(/\.(xlsx?|csv)(\?.*)?$/)) return "sheet";
+  if (nameOrUrl.match(/\.(txt|md)(\?.*)?$/)) return "text";
+  return "other";
+}
+
 export default function Documentos() {
   const { profile, permissions } = useAuth();
   const isAdmin = !!permissions?.can_view_all_cases;
@@ -42,8 +53,10 @@ export default function Documentos() {
   const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState("all");
+  const [searchTerm, setSearchTerm] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [viewingDoc, setViewingDoc] = useState(null);
   const [form, setForm] = useState(EMPTY);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -77,11 +90,37 @@ export default function Documentos() {
   const visibleCases = cases.filter(c => isAdmin || c.area_id === profile?.area_id);
   const visibleDocs = docs.filter(d => !d.case_id || visibleCases.some(c => c.id === d.case_id));
 
-  const filtered = filterType === "all" ? visibleDocs : visibleDocs.filter((d) => {
-    if (filterType === "amparo") {
-      return d.doc_type === "amparo_directo" || d.doc_type === "amparo_indirecto" || d.doc_type === "amparo";
+  const filtered = visibleDocs.filter((d) => {
+    // Type filter
+    let matchesType = true;
+    if (filterType !== "all") {
+      if (filterType === "amparo") {
+        matchesType = d.doc_type === "amparo_directo" || d.doc_type === "amparo_indirecto" || d.doc_type === "amparo";
+      } else {
+        matchesType = d.doc_type === filterType;
+      }
     }
-    return d.doc_type === filterType;
+    if (!matchesType) return false;
+
+    // Search term filter
+    if (!searchTerm.trim()) return true;
+    const term = searchTerm.toLowerCase().trim();
+    const caseObj = cases.find((c) => c.id === d.case_id);
+    const caseTitle = (caseObj?.title || "").toLowerCase();
+    const caseNum = (caseObj?.case_number || "").toLowerCase();
+    const docTitle = (d.title || "").toLowerCase();
+    const docLawyer = (d.lawyer || "").toLowerCase();
+    const fileName = (d.file_name || "").toLowerCase();
+    const typeLabel = (docTypeLabels[d.doc_type] || d.doc_type || "").toLowerCase();
+
+    return (
+      docTitle.includes(term) ||
+      docLawyer.includes(term) ||
+      caseTitle.includes(term) ||
+      caseNum.includes(term) ||
+      fileName.includes(term) ||
+      typeLabel.includes(term)
+    );
   });
 
   const handleFile = async (e) => {
@@ -93,7 +132,10 @@ export default function Documentos() {
       const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
       const filePath = `docs/${fileName}`;
 
-      const { data, error } = await supabase.storage.from('documents').upload(filePath, file);
+      const { data, error } = await supabase.storage.from('documents').upload(filePath, file, {
+        contentType: file.type || 'application/pdf',
+        upsert: true
+      });
       if (error) throw error;
 
       const { data: publicUrlData } = supabase.storage.from('documents').getPublicUrl(filePath);
@@ -218,39 +260,106 @@ export default function Documentos() {
         )
       } />
 
-      <div className="flex flex-wrap gap-2 mb-6">
-        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} className="bg-[#080808] border border-[#1A1A1A] text-[#F5F5F3]/60 text-xs px-3 py-2 focus:outline-none focus:border-[#C9A227]">
+      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+        <div className="relative flex-1">
+          <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#F5F5F3]/20" />
+          <input
+            type="text"
+            className="w-full bg-[#080808] border border-[#1A1A1A] pl-11 pr-8 py-2.5 text-sm text-[#F5F5F3] placeholder:text-[#F5F5F3]/20 focus:outline-none focus:border-[#C9A227] transition-colors"
+            placeholder="Buscar por título, caso, tipo o abogado…"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+          {searchTerm && (
+            <button
+              onClick={() => setSearchTerm("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#F5F5F3]/30 hover:text-[#F5F5F3] p-1 text-xs transition-colors"
+              title="Limpiar búsqueda"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        <select
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value)}
+          className="bg-[#080808] border border-[#1A1A1A] text-[#F5F5F3]/60 text-xs px-3 py-2.5 focus:outline-none focus:border-[#C9A227]"
+        >
           <option value="all">Todos los tipos</option>
-          {activeTypes.map((t) => <option key={t} value={t}>{docTypeLabels[t] || cap(t)}</option>)}
+          {activeTypes.map((t) => (
+            <option key={t} value={t}>
+              {docTypeLabels[t] || cap(t)}
+            </option>
+          ))}
         </select>
       </div>
 
       {loading ? <p className="text-[#F5F5F3]/30 text-sm">Cargando documentos…</p> : (
         <div className="bg-[#080808] border border-[#1A1A1A]">
-          {filtered.map((d, i) => (
-            <div key={d.id} className={`flex items-center justify-between p-4 hover:bg-[#0F0F0F] transition-colors group ${i !== filtered.length - 1 ? "border-b border-[#1A1A1A]" : ""}`}>
-              <div className="flex items-center gap-4 min-w-0 flex-1">
-                <FileText size={18} className="text-[#C9A227] flex-shrink-0" />
-                <div className="min-w-0">
-                  <p className="text-[#F5F5F3] text-sm truncate">{d.title}</p>
-                  <p className="text-[#F5F5F3]/30 text-[11px]">{docTypeLabels[d.doc_type] || cap(d.doc_type)} · {d.lawyer || "Sin abogado"} · {new Date(d.created_at).toLocaleDateString("es")}</p>
+          {filtered.map((d, i) => {
+            const linkedCase = cases.find((c) => c.id === d.case_id);
+            return (
+              <div 
+                key={d.id} 
+                onClick={() => { if (d.file_url) setViewingDoc(d); }}
+                className={`flex items-center justify-between p-4 hover:bg-[#0F0F0F] transition-colors group ${d.file_url ? "cursor-pointer" : ""} ${i !== filtered.length - 1 ? "border-b border-[#1A1A1A]" : ""}`}
+              >
+                <div className="flex items-center gap-4 min-w-0 flex-1">
+                  <FileText size={18} className="text-[#C9A227] flex-shrink-0 group-hover:scale-110 transition-transform" />
+                  <div className="min-w-0">
+                    <p className="text-[#F5F5F3] text-sm truncate group-hover:text-[#C9A227] transition-colors">{d.title}</p>
+                    <p className="text-[#F5F5F3]/30 text-[11px] truncate">
+                      {docTypeLabels[d.doc_type] || cap(d.doc_type)}
+                      {linkedCase ? ` · Caso: ${linkedCase.title}` : ""}
+                      {` · ${d.lawyer || "Sin abogado"}`}
+                      {` · ${new Date(d.created_at).toLocaleDateString("es")}`}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                  <span className={`text-[9px] tracking-wider uppercase px-2 py-1 ${statusColors[d.status] || ""}`}>{d.status}</span>
+                  {d.file_url && (
+                    <div className="flex items-center gap-1">
+                      <button 
+                        type="button"
+                        onClick={() => setViewingDoc(d)} 
+                        className="p-1.5 text-[#F5F5F3]/40 hover:text-[#C9A227] transition-colors" 
+                        title="Visualizar documento"
+                      >
+                        <Eye size={15} />
+                      </button>
+                      <a 
+                        href={d.file_url} 
+                        download={d.file_name || d.title}
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="p-1.5 text-[#F5F5F3]/30 hover:text-[#C9A227] transition-colors" 
+                        title="Descargar archivo"
+                      >
+                        <Download size={15} />
+                      </a>
+                    </div>
+                  )}
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    {permissions?.can_edit_documents && (
+                      <button onClick={() => openEdit(d)} className="p-1 text-[#F5F5F3]/30 hover:text-[#C9A227] transition-colors" title="Editar"><Pencil size={14} /></button>
+                    )}
+                    {permissions?.can_delete_documents && (
+                      <button onClick={() => remove(d)} className="p-1 text-[#F5F5F3]/30 hover:text-red-400 transition-colors" title="Eliminar"><Trash2 size={14} /></button>
+                    )}
+                  </div>
                 </div>
               </div>
-              <div className="flex items-center gap-3 flex-shrink-0">
-                <span className={`text-[9px] tracking-wider uppercase px-2 py-1 ${statusColors[d.status] || ""}`}>{d.status}</span>
-                {d.file_url && <a href={d.file_url} target="_blank" rel="noopener noreferrer" className="text-[#F5F5F3]/30 hover:text-[#C9A227] transition-colors"><Download size={15} /></a>}
-                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  {permissions?.can_edit_documents && (
-                    <button onClick={() => openEdit(d)} className="p-1 text-[#F5F5F3]/30 hover:text-[#C9A227] transition-colors"><Pencil size={14} /></button>
-                  )}
-                  {permissions?.can_delete_documents && (
-                    <button onClick={() => remove(d)} className="p-1 text-[#F5F5F3]/30 hover:text-red-400 transition-colors"><Trash2 size={14} /></button>
-                  )}
-                </div>
-              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <div className="text-center py-16">
+              <FileText size={32} className="text-[#F5F5F3]/10 mx-auto mb-3" />
+              <p className="text-[#F5F5F3]/20 text-sm">
+                {searchTerm ? "No se encontraron documentos para esta búsqueda" : "Sin documentos"}
+              </p>
             </div>
-          ))}
-          {filtered.length === 0 && <div className="text-center py-16"><FileText size={32} className="text-[#F5F5F3]/10 mx-auto mb-3" /><p className="text-[#F5F5F3]/20 text-sm">Sin documentos</p></div>}
+          )}
         </div>
       )}
 
@@ -314,6 +423,120 @@ export default function Documentos() {
           <button onClick={submit} disabled={!form.title || saving} className="w-full bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 disabled:opacity-30 hover:bg-[#A8841D] transition-colors">{saving ? "Guardando…" : editingId ? "Guardar Cambios" : "Subir Documento"}</button>
         </div>
       </Modal>
+
+      {/* Document Viewer Modal */}
+      {viewingDoc && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/90 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 animate-in fade-in"
+          onClick={() => setViewingDoc(null)}
+        >
+          <div 
+            className="relative w-full max-w-5xl h-[90vh] bg-[#080808] border border-[#1A1A1A] flex flex-col shadow-2xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Viewer Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-[#1A1A1A] bg-[#0A0A0A] flex-shrink-0">
+              <div className="min-w-0 flex items-center gap-3">
+                <FileText size={18} className="text-[#C9A227] flex-shrink-0" />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="text-[#F5F5F3] text-sm font-medium truncate">{viewingDoc.title}</h3>
+                    <span className={`text-[8px] tracking-wider uppercase px-2 py-0.5 font-medium ${statusColors[viewingDoc.status] || ""}`}>
+                      {viewingDoc.status}
+                    </span>
+                  </div>
+                  <p className="text-[#F5F5F3]/40 text-[11px] truncate">
+                    {docTypeLabels[viewingDoc.doc_type] || cap(viewingDoc.doc_type)}
+                    {viewingDoc.case_id && cases.find(c => c.id === viewingDoc.case_id) ? ` · Caso: ${cases.find(c => c.id === viewingDoc.case_id).title}` : ""}
+                    {viewingDoc.lawyer ? ` · ${viewingDoc.lawyer}` : ""}
+                  </p>
+                </div>
+              </div>
+
+              {/* Action Controls */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {viewingDoc.file_url && (
+                  <>
+                    <a 
+                      href={viewingDoc.file_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="px-3 py-1.5 bg-[#141414] hover:bg-[#1E1E1E] text-[#F5F5F3]/70 hover:text-[#C9A227] border border-[#1E1E1E] text-xs flex items-center gap-1.5 transition-colors"
+                      title="Abrir en pestaña nueva"
+                    >
+                      <ExternalLink size={13} />
+                      <span className="hidden sm:inline">Nueva pestaña</span>
+                    </a>
+                    <a 
+                      href={viewingDoc.file_url} 
+                      download={viewingDoc.file_name || viewingDoc.title}
+                      className="px-3 py-1.5 bg-[#141414] hover:bg-[#1E1E1E] text-[#F5F5F3]/70 hover:text-[#C9A227] border border-[#1E1E1E] text-xs flex items-center gap-1.5 transition-colors"
+                      title="Descargar archivo"
+                    >
+                      <Download size={13} />
+                      <span className="hidden sm:inline">Descargar</span>
+                    </a>
+                  </>
+                )}
+                <button 
+                  onClick={() => setViewingDoc(null)} 
+                  className="p-1.5 text-[#F5F5F3]/40 hover:text-red-400 transition-colors ml-1"
+                  title="Cerrar visor"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Viewer Content */}
+            <div className="flex-1 bg-[#050505] p-2 overflow-hidden flex flex-col items-center justify-center">
+              {(() => {
+                const fType = getFileType(viewingDoc);
+
+                if (fType === "image") {
+                  return (
+                    <div className="w-full h-full flex items-center justify-center overflow-auto p-2">
+                      <img 
+                        src={viewingDoc.file_url} 
+                        alt={viewingDoc.title} 
+                        className="max-w-full max-h-full object-contain select-none" 
+                      />
+                    </div>
+                  );
+                }
+
+                if (fType === "pdf") {
+                  return (
+                    <iframe
+                      src={`${viewingDoc.file_url}#toolbar=1`}
+                      className="w-full h-full border-0 bg-white"
+                      title={viewingDoc.title}
+                    />
+                  );
+                }
+
+                if (fType === "word" || fType === "sheet") {
+                  return (
+                    <iframe
+                      src={`https://docs.google.com/viewer?url=${encodeURIComponent(viewingDoc.file_url)}&embedded=true`}
+                      className="w-full h-full border-0 bg-white"
+                      title={viewingDoc.title}
+                    />
+                  );
+                }
+
+                return (
+                  <iframe
+                    src={viewingDoc.file_url}
+                    className="w-full h-full border-0 bg-white"
+                    title={viewingDoc.title}
+                  />
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
