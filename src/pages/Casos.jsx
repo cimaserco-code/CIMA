@@ -6,6 +6,7 @@ import Modal from "@/components/legal/Modal";
 import LawyerSelect from "@/components/legal/LawyerSelect";
 import { useAuth } from "@/lib/AuthContext";
 import { cap } from "@/lib/format";
+import { logActivity } from "@/lib/activityLogger";
 
 const PRACTICE_AREAS = ["Litigio", "Corporativo", "M&A", "Propiedad Intelectual", "Regulatorio", "Arbitraje", "Fiscal", "Laboral"];
 const STATUSES = ["activo", "en_proceso", "en_espera", "cerrado", "archivado"];
@@ -26,7 +27,7 @@ const toArray = (v) => Array.isArray(v) ? v : (v ? [v] : []);
 const lawyers = (v) => Array.isArray(v) ? (v.length ? v.join(", ") : "—") : (v || "—");
 
 export default function Casos() {
-  const { profile, permissions } = useAuth();
+  const { user, profile, permissions } = useAuth();
   const isAdmin = !!permissions?.can_view_all_cases;
 
   const [cases, setCases] = useState([]);
@@ -131,8 +132,30 @@ export default function Casos() {
       let res;
       if (editingId) { 
         res = await supabase.from('cases').update(payload).eq('id', editingId); 
+        if (!res.error) {
+          logActivity({
+            userId: user?.id,
+            userName: profile?.full_name || user?.email || "Usuario",
+            userEmail: user?.email,
+            action: "EDITAR",
+            module: "Casos",
+            description: `Actualizó el caso "${form.title}" (${form.case_number}) - Estado: ${form.status}`,
+            metadata: { case_id: editingId, case_number: form.case_number, status: form.status }
+          });
+        }
       } else { 
         res = await supabase.from('cases').insert([payload]); 
+        if (!res.error) {
+          logActivity({
+            userId: user?.id,
+            userName: profile?.full_name || user?.email || "Usuario",
+            userEmail: user?.email,
+            action: "CREAR",
+            module: "Casos",
+            description: `Creó el nuevo caso "${form.title}" (${form.case_number})`,
+            metadata: { case_number: form.case_number, client: form.client, practice_area: form.practice_area }
+          });
+        }
       }
       
       if (res.error) throw res.error;
@@ -149,7 +172,18 @@ export default function Casos() {
   const remove = async (c) => {
     if (!confirm(`¿Eliminar el caso "${c.title}"?`)) return;
     try { 
-      await supabase.from('cases').delete().eq('id', c.id); 
+      const res = await supabase.from('cases').delete().eq('id', c.id); 
+      if (!res.error) {
+        logActivity({
+          userId: user?.id,
+          userName: profile?.full_name || user?.email || "Usuario",
+          userEmail: user?.email,
+          action: "ELIMINAR",
+          module: "Casos",
+          description: `Eliminó el caso "${c.title}" (${c.case_number || 'sin folio'})`,
+          metadata: { case_id: c.id, case_number: c.case_number }
+        });
+      }
       load(); 
     } catch (e) { console.error(e); }
   };

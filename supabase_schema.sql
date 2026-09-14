@@ -319,3 +319,19 @@ CREATE POLICY "Public Document Storage Access" ON storage.objects FOR ALL USING 
 
 INSERT INTO storage.buckets (id, name, public) VALUES ('avatars', 'avatars', true) ON CONFLICT (id) DO NOTHING;
 CREATE POLICY "Public Avatar Storage Access" ON storage.objects FOR ALL USING (bucket_id = 'avatars');
+
+-- 12. Tabla de Historial y Actualizaciones (Activity Logs)
+CREATE TABLE IF NOT EXISTS public.activity_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL,
+  user_name TEXT NOT NULL,
+  user_email TEXT,
+  action TEXT NOT NULL, -- 'CREAR', 'EDITAR', 'ELIMINAR', 'SUBIR', etc.
+  module TEXT NOT NULL, -- 'Documentos', 'Casos', 'Tareas', 'Calendario', etc.
+  description TEXT NOT NULL,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Permitir acceso total en activity_logs" ON public.activity_logs FOR ALL USING (auth.role() = 'authenticated');

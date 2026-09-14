@@ -5,6 +5,7 @@ import PageHeader from "@/components/legal/PageHeader";
 import Modal from "@/components/legal/Modal";
 import { useAuth } from "@/lib/AuthContext";
 import { cap } from "@/lib/format";
+import { logActivity } from "@/lib/activityLogger";
 
 const TYPES = ["contrato", "demanda", "evidencia", "escrito", "otro"];
 const PENAL_TYPES = ["expediente", "carpeta_investigacion", "proceso_penal", "amparo", "reporte", "sentencia", "evidencia", "correspondencia", "otro"];
@@ -44,7 +45,7 @@ function getFileType(doc) {
 }
 
 export default function Documentos() {
-  const { profile, permissions } = useAuth();
+  const { user, profile, permissions } = useAuth();
   const isAdmin = !!permissions?.can_view_all_cases;
 
   const [docs, setDocs] = useState([]);
@@ -208,8 +209,32 @@ export default function Documentos() {
       let res;
       if (editingId) { 
         res = await supabase.from('documents').update(payload).eq('id', editingId); 
+        if (!res.error) {
+          logActivity({
+            userId: user?.id,
+            userName: profile?.full_name || user?.email || "Usuario",
+            userEmail: user?.email,
+            action: "EDITAR",
+            module: "Documentos",
+            description: `Editó el documento "${form.title}" (${docTypeLabels[finalDocType] || finalDocType})`,
+            metadata: { document_id: editingId, file_name: form.file_name, file_url: form.file_url }
+          });
+        }
       } else { 
         res = await supabase.from('documents').insert([payload]); 
+        if (!res.error) {
+          logActivity({
+            userId: user?.id,
+            userName: profile?.full_name || user?.email || "Usuario",
+            userEmail: user?.email,
+            action: form.file_url ? "SUBIR" : "CREAR",
+            module: "Documentos",
+            description: form.file_url 
+              ? `Subió el documento "${form.title}" (${form.file_name || 'archivo'})`
+              : `Creó el documento "${form.title}"`,
+            metadata: { file_name: form.file_name, file_url: form.file_url, doc_type: finalDocType }
+          });
+        }
       }
       if (res.error) throw res.error;
 
@@ -225,7 +250,18 @@ export default function Documentos() {
   const remove = async (d) => {
     if (!confirm(`¿Eliminar el documento "${d.title}"?`)) return;
     try { 
-      await supabase.from('documents').delete().eq('id', d.id); 
+      const res = await supabase.from('documents').delete().eq('id', d.id); 
+      if (!res.error) {
+        logActivity({
+          userId: user?.id,
+          userName: profile?.full_name || user?.email || "Usuario",
+          userEmail: user?.email,
+          action: "ELIMINAR",
+          module: "Documentos",
+          description: `Eliminó el documento "${d.title}" (${d.file_name || 'sin archivo'})`,
+          metadata: { document_id: d.id, file_name: d.file_name, file_url: d.file_url }
+        });
+      }
       load(); 
     } catch (e) { console.error(e); }
   };

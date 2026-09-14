@@ -23,6 +23,7 @@ import Honorarios from './pages/Honorarios';
 import Clientes from './pages/Clientes';
 import VistaCliente from './pages/VistaCliente';
 import Comentarios from './pages/Comentarios';
+import Actualizaciones from './pages/Actualizaciones';
 import PortalLayout from './components/legal/PortalLayout';
 
 const AuthenticatedApp = () => {
@@ -57,6 +58,7 @@ const AuthenticatedApp = () => {
           <Route path="/clientes" element={<Clientes />} />
           <Route path="/vista-cliente" element={<VistaCliente />} />
           <Route path="/comentarios" element={<Comentarios />} />
+          <Route path="/actualizaciones" element={<Actualizaciones />} />
           <Route path="/administracion" element={<Administracion />} />
         </Route>
       </Route>

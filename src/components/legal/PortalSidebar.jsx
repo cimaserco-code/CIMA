@@ -1,6 +1,6 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
-import { LayoutDashboard, Briefcase, FileText, CheckSquare, Calendar, Users, Shield, X, LogOut, DollarSign, Contact, Eye, MessageSquare } from "lucide-react";
+import { LayoutDashboard, Briefcase, FileText, CheckSquare, Calendar, Users, Shield, X, LogOut, DollarSign, Contact, Eye, MessageSquare, History } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
 
 const navItems = [
@@ -13,6 +13,7 @@ const navItems = [
   { label: "Honorarios", icon: DollarSign, path: "/honorarios" },
   { label: "Clientes", icon: Contact, path: "/clientes" },
   { label: "Comentarios", icon: MessageSquare, path: "/comentarios" },
+  { label: "Actualizaciones", icon: History, path: "/actualizaciones" },
 ];
 
 const adminItem = { label: "Administración", icon: Shield, path: "/administracion" };
