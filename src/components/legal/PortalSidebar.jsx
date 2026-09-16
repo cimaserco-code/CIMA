@@ -13,7 +13,6 @@ const navItems = [
   { label: "Honorarios", icon: DollarSign, path: "/honorarios" },
   { label: "Clientes", icon: Contact, path: "/clientes" },
   { label: "Comentarios", icon: MessageSquare, path: "/comentarios" },
-  { label: "Actualizaciones", icon: History, path: "/actualizaciones" },
 ];
 
 const adminItem = { label: "Administración", icon: Shield, path: "/administracion" };

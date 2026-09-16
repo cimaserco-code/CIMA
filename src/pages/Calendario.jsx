@@ -6,6 +6,8 @@ import Modal from "@/components/legal/Modal";
 import LawyerSelect from "@/components/legal/LawyerSelect";
 import { useAuth } from "@/lib/AuthContext";
 import { cap } from "@/lib/format";
+import { logActivity } from "@/lib/activityLogger";
+import { createNotification } from "@/lib/notificationService";
 
 const TYPES = ["audiencia", "vencimiento_termino", "reunion_interna", "cita_cliente", "diligencia", "recordatorio_general"];
 const typeColors = { 
@@ -115,7 +117,7 @@ const lawyers = (v) => Array.isArray(v) ? (v.length ? v.join(", ") : "—") : (v
 const EMPTY = { title: "", event_type: "audiencia", event_date: "", event_time: "", case_id: "", assigned_lawyers: [], description: "" };
 
 export default function Calendario() {
-  const { profile, permissions } = useAuth();
+  const { user, profile, permissions } = useAuth();
   const isAdmin = !!permissions?.can_view_all_cases;
 
   const [events, setEvents] = useState([]);
@@ -210,10 +212,47 @@ export default function Calendario() {
       let res;
       if (editingId) { 
         res = await supabase.from('calendar_events').update(payload).eq('id', editingId); 
+        if (!res.error) {
+          logActivity({
+            userId: user?.id,
+            userName: profile?.full_name || user?.email || "Usuario",
+            userEmail: user?.email,
+            action: "EDITAR",
+            module: "Calendario",
+            description: `Actualizó el evento "${form.title}" (${typeLabels[form.event_type] || form.event_type}) para el ${form.event_date}`,
+            metadata: { event_id: editingId, event_date: form.event_date }
+          });
+        }
       } else { 
         res = await supabase.from('calendar_events').insert([payload]); 
+        if (!res.error) {
+          logActivity({
+            userId: user?.id,
+            userName: profile?.full_name || user?.email || "Usuario",
+            userEmail: user?.email,
+            action: "CREAR",
+            module: "Calendario",
+            description: `Agendó el evento "${form.title}" (${typeLabels[form.event_type] || form.event_type}) para el ${form.event_date}`,
+            metadata: { event_date: form.event_date, event_time: form.event_time }
+          });
+        }
       }
       if (res.error) throw res.error;
+
+      // Disparar notificaciones a los abogados asignados
+      const assigned = Array.isArray(form.assigned_lawyers) ? form.assigned_lawyers : [form.assigned_lawyers];
+      for (const lawyerName of assigned) {
+        if (lawyerName) {
+          createNotification({
+            recipientName: lawyerName,
+            type: "evento",
+            title: editingId ? "Evento actualizado" : "Nuevo evento agendado",
+            message: `Te han asignado el evento "${form.title}" para el ${formatDate(form.event_date)}${form.event_time ? ` a las ${form.event_time}` : ""}`,
+            link: "/calendario",
+            metadata: { event_title: form.title, event_date: form.event_date }
+          });
+        }
+      }
 
       setModalOpen(false); setForm(EMPTY); setEditingId(null); load();
     } catch (e) { 
@@ -229,6 +268,15 @@ export default function Calendario() {
     try { 
       const { error } = await supabase.from('calendar_events').delete().eq('id', e.id); 
       if (error) throw error;
+      logActivity({
+        userId: user?.id,
+        userName: profile?.full_name || user?.email || "Usuario",
+        userEmail: user?.email,
+        action: "ELIMINAR",
+        module: "Calendario",
+        description: `Eliminó el evento "${e.title}" del ${e.event_date}`,
+        metadata: { event_id: e.id, event_date: e.event_date }
+      });
       if (selectedDay) setSelectedDay(null); 
       if (viewingEvent?.id === e.id) setViewingEvent(null);
       load(); 

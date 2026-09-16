@@ -335,3 +335,21 @@ CREATE TABLE IF NOT EXISTS public.activity_logs (
 
 ALTER TABLE public.activity_logs ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Permitir acceso total en activity_logs" ON public.activity_logs FOR ALL USING (auth.role() = 'authenticated');
+
+-- 13. Tabla de Notificaciones
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  recipient_name TEXT,
+  recipient_email TEXT,
+  type TEXT NOT NULL, -- 'caso' | 'tarea' | 'documento' | 'evento' | 'general'
+  title TEXT NOT NULL,
+  message TEXT NOT NULL,
+  link TEXT,
+  read BOOLEAN DEFAULT FALSE,
+  metadata JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Permitir acceso total en notifications" ON public.notifications FOR ALL USING (auth.role() = 'authenticated');

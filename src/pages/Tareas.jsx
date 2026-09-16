@@ -7,6 +7,8 @@ import LawyerSelect from "@/components/legal/LawyerSelect";
 import CaseSelect from "@/components/legal/CaseSelect";
 import { useAuth } from "@/lib/AuthContext";
 import { cap } from "@/lib/format";
+import { logActivity } from "@/lib/activityLogger";
+import { createNotification } from "@/lib/notificationService";
 
 const COLUMNS = [
   { key: "pendiente", label: "Por Hacer" },
@@ -20,7 +22,7 @@ const urgencyColors = { urgente: "text-red-500 border-red-500/30", alta: "text-r
 const EMPTY = { title: "", description: "", case_id: "", assigned_lawyer: "", due_date: "", urgency: "media", status: "pendiente" };
 
 export default function Tareas() {
-  const { profile, permissions } = useAuth();
+  const { user, profile, permissions } = useAuth();
   const isAdmin = !!permissions?.can_view_all_cases;
 
   const [tasks, setTasks] = useState([]);
@@ -94,20 +96,72 @@ export default function Tareas() {
         status: form.status
       };
 
+      let res;
       if (editingId) { 
-        await supabase.from('tasks').update(payload).eq('id', editingId); 
+        res = await supabase.from('tasks').update(payload).eq('id', editingId); 
+        if (!res.error) {
+          logActivity({
+            userId: user?.id,
+            userName: profile?.full_name || user?.email || "Usuario",
+            userEmail: user?.email,
+            action: "EDITAR",
+            module: "Tareas",
+            description: `Actualizó la tarea "${form.title}" - Estado: ${form.status}`,
+            metadata: { task_id: editingId, urgency: form.urgency }
+          });
+        }
       } else { 
-        await supabase.from('tasks').insert([payload]); 
+        res = await supabase.from('tasks').insert([payload]); 
+        if (!res.error) {
+          logActivity({
+            userId: user?.id,
+            userName: profile?.full_name || user?.email || "Usuario",
+            userEmail: user?.email,
+            action: "CREAR",
+            module: "Tareas",
+            description: `Creó la nueva tarea "${form.title}" (${form.urgency})`,
+            metadata: { urgency: form.urgency, due_date: form.due_date }
+          });
+        }
       }
+
+      if (res.error) throw res.error;
+
+      // Disparar notificación de asignación
+      if (form.assigned_lawyer) {
+        createNotification({
+          recipientName: form.assigned_lawyer,
+          type: "tarea",
+          title: editingId ? "Tarea actualizada" : "Nueva tarea asignada",
+          message: `Te han asignado la tarea "${form.title}" (Urgencia: ${form.urgency})`,
+          link: "/tareas",
+          metadata: { task_title: form.title, urgency: form.urgency, due_date: form.due_date }
+        });
+      }
+
       setModalOpen(false); setForm(EMPTY); setEditingId(null); load();
-    } catch (e) { console.error(e); }
+    } catch (e) { 
+      console.error(e); 
+      alert("Error al guardar la tarea: " + (e.message || JSON.stringify(e)));
+    }
     finally { setSaving(false); }
   };
 
   const remove = async (t) => {
     if (!confirm(`¿Eliminar la tarea "${t.title}"?`)) return;
     try { 
-      await supabase.from('tasks').delete().eq('id', t.id); 
+      const res = await supabase.from('tasks').delete().eq('id', t.id); 
+      if (!res.error) {
+        logActivity({
+          userId: user?.id,
+          userName: profile?.full_name || user?.email || "Usuario",
+          userEmail: user?.email,
+          action: "ELIMINAR",
+          module: "Tareas",
+          description: `Eliminó la tarea "${t.title}"`,
+          metadata: { task_id: t.id }
+        });
+      }
       load(); 
     } catch (e) { console.error(e); }
   };

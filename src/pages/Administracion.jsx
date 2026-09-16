@@ -1,17 +1,19 @@
 import React, { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
-import { Shield, Users, Mail, Pencil, Search, Check, UserPlus, Lock, Save, Folder, Plus, Trash, Eye } from "lucide-react";
+import { Shield, Users, Mail, Pencil, Search, Check, UserPlus, Lock, Save, Folder, Plus, Trash, Eye, History } from "lucide-react";
 import PageHeader from "@/components/legal/PageHeader";
 import Modal from "@/components/legal/Modal";
+import Actualizaciones from "./Actualizaciones";
 
 export default function Administracion() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [users, setUsers] = useState([]);
   const [perms, setPerms] = useState([]);
   const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("usuarios");
+  const [tab, setTab] = useState(searchParams.get("tab") || "usuarios");
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [editingUser, setEditingUser] = useState(null);
@@ -294,6 +296,7 @@ export default function Administracion() {
         <button onClick={() => setTab("usuarios")} className={`flex items-center gap-2 px-4 py-2.5 text-[11px] tracking-wider uppercase transition-colors ${tab === "usuarios" ? "bg-[#C9A227] text-[#080808]" : "text-[#F5F5F3]/40 hover:text-[#F5F5F3]"}`}><Users size={13} /> Usuarios</button>
         <button onClick={() => setTab("areas")} className={`flex items-center gap-2 px-4 py-2.5 text-[11px] tracking-wider uppercase transition-colors ${tab === "areas" ? "bg-[#C9A227] text-[#080808]" : "text-[#F5F5F3]/40 hover:text-[#F5F5F3]"}`}><Folder size={13} /> Áreas</button>
         <button onClick={() => setTab("permisos")} className={`flex items-center gap-2 px-4 py-2.5 text-[11px] tracking-wider uppercase transition-colors ${tab === "permisos" ? "bg-[#C9A227] text-[#080808]" : "text-[#F5F5F3]/40 hover:text-[#F5F5F3]"}`}><Lock size={13} /> Roles y Permisos</button>
+        <button onClick={() => setTab("actualizaciones")} className={`flex items-center gap-2 px-4 py-2.5 text-[11px] tracking-wider uppercase transition-colors ${tab === "actualizaciones" ? "bg-[#C9A227] text-[#080808]" : "text-[#F5F5F3]/40 hover:text-[#F5F5F3]"}`}><History size={13} /> Actualizaciones</button>
       </div>
 
       {error && !loading && (
@@ -595,6 +598,12 @@ export default function Administracion() {
               ))}
             </div>
           </div>
+        </div>
+      )}
+
+      {tab === "actualizaciones" && (
+        <div className="pt-2">
+          <Actualizaciones embedded={true} />
         </div>
       )}
 

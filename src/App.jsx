@@ -58,7 +58,7 @@ const AuthenticatedApp = () => {
           <Route path="/clientes" element={<Clientes />} />
           <Route path="/vista-cliente" element={<VistaCliente />} />
           <Route path="/comentarios" element={<Comentarios />} />
-          <Route path="/actualizaciones" element={<Actualizaciones />} />
+          <Route path="/actualizaciones" element={<Navigate to="/administracion?tab=actualizaciones" replace />} />
           <Route path="/administracion" element={<Administracion />} />
         </Route>
       </Route>

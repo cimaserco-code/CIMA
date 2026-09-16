@@ -2,6 +2,7 @@ import React, { useState, useRef } from "react";
 import { Outlet } from "react-router-dom";
 import { Menu, User, Lock, Save, Eye, EyeOff, Camera, Trash2, Upload } from "lucide-react";
 import PortalSidebar from "./PortalSidebar";
+import NotificationCenter from "./NotificationCenter";
 import packageJson from "../../../package.json";
 import Modal from "@/components/legal/Modal";
 import { useAuth } from "@/lib/AuthContext";
@@ -151,11 +152,18 @@ export default function PortalLayout() {
       <PortalSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} onOpenProfile={handleOpenProfile} />
       
       <main className="flex-1 overflow-y-auto bg-[#0F0F0F] pb-10">
-        <div className="lg:hidden h-14 flex items-center gap-3 px-4 border-b border-[#1A1A1A] bg-[#080808] sticky top-0 z-30">
-          <button onClick={() => setSidebarOpen(true)} className="text-[#F5F5F3]"><Menu size={22} /></button>
-          <img src="/logo.png" alt="Logo" className="w-6 h-6 object-contain" />
-          <span className="font-heading text-[#F5F5F3] text-sm tracking-[0.3em] uppercase">CIMA</span>
-        </div>
+        <header className="h-14 flex items-center justify-between px-4 lg:px-8 border-b border-[#1A1A1A] bg-[#080808] sticky top-0 z-30">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setSidebarOpen(true)} className="lg:hidden text-[#F5F5F3]"><Menu size={22} /></button>
+            <div className="flex items-center gap-2 lg:hidden">
+              <img src="/logo.png" alt="Logo" className="w-6 h-6 object-contain" />
+              <span className="font-heading text-[#F5F5F3] text-sm tracking-[0.3em] uppercase">CIMA</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-3 ml-auto">
+            <NotificationCenter />
+          </div>
+        </header>
         <div className="p-6 md:p-8 lg:p-10">
           <Outlet />
         </div>

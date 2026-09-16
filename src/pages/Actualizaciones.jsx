@@ -60,7 +60,7 @@ function formatRelativeTime(dateStr) {
   return date.toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-export default function Actualizaciones() {
+export default function Actualizaciones({ embedded = false }) {
   const { profile, permissions } = useAuth();
   const isAdmin = permissions?.can_manage_users || ['admin', 'direccion general'].includes(profile?.role?.toLowerCase());
 
@@ -107,20 +107,22 @@ export default function Actualizaciones() {
 
   return (
     <div className="space-y-6">
-      <PageHeader 
-        title="Actualizaciones e Historial" 
-        subtitle="Registro cronológico de cambios, creaciones y eliminaciones realizadas en la firma"
-        action={
-          <button 
-            onClick={loadData}
-            disabled={loading}
-            className="border border-[#1A1A1A] hover:border-[#C9A227]/50 bg-[#080808] text-[#F5F5F3]/70 hover:text-[#C9A227] text-xs px-4 py-2.5 flex items-center gap-2 transition-colors disabled:opacity-40"
-          >
-            <RefreshCw size={13} className={loading ? "animate-spin text-[#C9A227]" : ""} />
-            <span>Actualizar</span>
-          </button>
-        }
-      />
+      {!embedded && (
+        <PageHeader 
+          title="Actualizaciones e Historial" 
+          subtitle="Registro cronológico de cambios, creaciones y eliminaciones realizadas en la firma"
+          action={
+            <button 
+              onClick={loadData}
+              disabled={loading}
+              className="border border-[#1A1A1A] hover:border-[#C9A227]/50 bg-[#080808] text-[#F5F5F3]/70 hover:text-[#C9A227] text-xs px-4 py-2.5 flex items-center gap-2 transition-colors disabled:opacity-40"
+            >
+              <RefreshCw size={13} className={loading ? "animate-spin text-[#C9A227]" : ""} />
+              <span>Actualizar</span>
+            </button>
+          }
+        />
+      )}
 
       {/* Admin Notice if using fallback */}
       {isAdmin && source === "messages_fallback" && (
