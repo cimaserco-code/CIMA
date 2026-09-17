@@ -47,7 +47,8 @@ function getFileType(doc) {
 
 export default function Documentos() {
   const { user, profile, permissions } = useAuth();
-  const isAdmin = !!permissions?.can_view_all_cases;
+  const isAdmin = !!permissions?.can_view_all_cases || 
+    ['admin', 'direccion general'].includes(profile?.role?.toLowerCase());
 
   const [docs, setDocs] = useState([]);
   const [cases, setCases] = useState([]);
@@ -55,9 +56,10 @@ export default function Documentos() {
   const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterType, setFilterType] = useState("all");
+  const [filterCase, setFilterCase] = useState("all"); // 'all' | 'unassigned' | caseId
   const [searchTerm, setSearchTerm] = useState("");
-  const [viewMode, setViewMode] = useState("carpetas"); // 'carpetas' | 'lista'
-  const [collapsedFolders, setCollapsedFolders] = useState({});
+  const [viewMode, setViewMode] = useState("secciones"); // 'secciones' | 'lista'
+  const [collapsedSections, setCollapsedSections] = useState({});
   const [wordViewerEngine, setWordViewerEngine] = useState("office"); // 'office' | 'google'
   const [modalOpen, setModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -92,10 +94,19 @@ export default function Documentos() {
 
   // Filter cases and documents by Area:
   // If not admin, only show cases belonging to user's assigned area.
-  const visibleCases = cases.filter(c => isAdmin || c.area_id === profile?.area_id);
+  const visibleCases = cases.filter(c => isAdmin || !profile?.area_id || c.area_id === profile?.area_id);
   const visibleDocs = docs.filter(d => !d.case_id || visibleCases.some(c => c.id === d.case_id));
 
   const filtered = visibleDocs.filter((d) => {
+    // Case filter
+    if (filterCase !== "all") {
+      if (filterCase === "unassigned") {
+        if (d.case_id) return false;
+      } else {
+        if (d.case_id !== filterCase) return false;
+      }
+    }
+
     // Type filter
     let matchesType = true;
     if (filterType !== "all") {
@@ -113,6 +124,7 @@ export default function Documentos() {
     const caseObj = cases.find((c) => c.id === d.case_id);
     const caseTitle = (caseObj?.title || "").toLowerCase();
     const caseNum = (caseObj?.case_number || "").toLowerCase();
+    const caseClient = (caseObj?.client || "").toLowerCase();
     const docTitle = (d.title || "").toLowerCase();
     const docLawyer = (d.lawyer || "").toLowerCase();
     const fileName = (d.file_name || "").toLowerCase();
@@ -123,6 +135,7 @@ export default function Documentos() {
       docLawyer.includes(term) ||
       caseTitle.includes(term) ||
       caseNum.includes(term) ||
+      caseClient.includes(term) ||
       fileName.includes(term) ||
       typeLabel.includes(term)
     );
@@ -211,7 +224,8 @@ export default function Documentos() {
         lawyer: form.lawyer,
         status: form.status,
         file_url: form.file_url,
-        file_name: form.file_name
+        file_name: form.file_name,
+        updated_at: new Date().toISOString()
       };
 
       let res;
@@ -270,6 +284,20 @@ export default function Documentos() {
   const remove = async (d) => {
     if (!confirm(`¿Eliminar el documento "${d.title}"?`)) return;
     try { 
+      // 1. Eliminar archivo físico de Supabase Storage para evitar archivos huérfanos
+      if (d.file_url) {
+        try {
+          const match = d.file_url.match(/\/documents\/(.+)$/);
+          if (match && match[1]) {
+            const storagePath = decodeURIComponent(match[1]);
+            await supabase.storage.from('documents').remove([storagePath]);
+          }
+        } catch (storageErr) {
+          console.warn("No se pudo remover el archivo físico de Storage:", storageErr);
+        }
+      }
+
+      // 2. Eliminar registro de la base de datos
       const res = await supabase.from('documents').delete().eq('id', d.id); 
       if (!res.error) {
         logActivity({
@@ -307,22 +335,27 @@ export default function Documentos() {
 
   return (
     <div>
-      <PageHeader title="Documentos" subtitle={`${filtered.length} documentos`} action={
-        permissions?.can_create_documents && (
-          <button onClick={openNew} className="relative overflow-hidden group bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 flex items-center gap-2">
-            <span className="absolute inset-0 bg-[#F5F5F3] -translate-x-full group-hover:translate-x-0 transition-transform duration-500" />
-            <span className="relative z-10 group-hover:text-[#080808] transition-colors duration-500 flex items-center gap-2"><Plus size={15} /> Subir Documento</span>
-          </button>
-        )
-      } />
+      <PageHeader 
+        title="Documentos" 
+        subtitle={`${visibleCases.length} expedientes · ${filtered.length} documentos en total`} 
+        action={
+          permissions?.can_create_documents && (
+            <button onClick={() => openNew("")} className="relative overflow-hidden group bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 flex items-center gap-2 font-medium">
+              <span className="absolute inset-0 bg-[#F5F5F3] -translate-x-full group-hover:translate-x-0 transition-transform duration-500" />
+              <span className="relative z-10 group-hover:text-[#080808] transition-colors duration-500 flex items-center gap-2"><Plus size={15} /> Subir Documento</span>
+            </button>
+          )
+        } 
+      />
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+      {/* Toolbar: Search, Case Filter, Type Filter, View Switcher */}
+      <div className="flex flex-col lg:flex-row gap-3 mb-6">
         <div className="relative flex-1">
           <Search size={15} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#F5F5F3]/20" />
           <input
             type="text"
             className="w-full bg-[#080808] border border-[#1A1A1A] pl-11 pr-8 py-2.5 text-sm text-[#F5F5F3] placeholder:text-[#F5F5F3]/20 focus:outline-none focus:border-[#C9A227] transition-colors"
-            placeholder="Buscar por título, caso, tipo o abogado…"
+            placeholder="Buscar por título, caso, cliente, folio o abogado…"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -337,7 +370,29 @@ export default function Documentos() {
           )}
         </div>
         
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Case Filter Selector */}
+          <select
+            value={filterCase}
+            onChange={(e) => setFilterCase(e.target.value)}
+            className="bg-[#080808] border border-[#1A1A1A] text-[#F5F5F3]/70 text-xs px-3 py-2.5 focus:outline-none focus:border-[#C9A227] max-w-[210px] truncate"
+            title="Filtrar por expediente / caso"
+          >
+            <option value="all">Todos los casos ({visibleCases.length})</option>
+            {visibleCases.map((c) => {
+              const count = docs.filter(d => d.case_id === c.id).length;
+              return (
+                <option key={c.id} value={c.id}>
+                  {c.title} ({count})
+                </option>
+              );
+            })}
+            <option value="unassigned">
+              Sin caso asignado ({docs.filter(d => !d.case_id).length})
+            </option>
+          </select>
+
+          {/* Doc Type Selector */}
           <select
             value={filterType}
             onChange={(e) => setFilterType(e.target.value)}
@@ -351,45 +406,48 @@ export default function Documentos() {
             ))}
           </select>
 
-          {/* View Mode Toggle: Carpetas vs Lista */}
+          {/* View Mode Toggle: Secciones vs Lista */}
           <div className="flex bg-[#080808] border border-[#1A1A1A] p-0.5">
             <button
               type="button"
-              onClick={() => setViewMode("carpetas")}
-              className={`p-2 text-xs flex items-center gap-1.5 transition-colors ${
-                viewMode === "carpetas"
-                  ? "bg-[#C9A227] text-[#080808] font-medium"
+              onClick={() => setViewMode("secciones")}
+              className={`px-3 py-2 text-xs flex items-center gap-1.5 transition-colors ${
+                viewMode === "secciones"
+                  ? "bg-[#C9A227] text-[#080808] font-semibold"
                   : "text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
               }`}
-              title="Vista por Carpetas de Caso"
+              title="Agrupado por Secciones de Caso"
             >
-              <Folder size={14} />
-              <span className="hidden md:inline text-[11px] tracking-wider uppercase">Carpetas</span>
+              <Layers size={13} />
+              <span className="text-[11px] tracking-wider uppercase">Secciones</span>
             </button>
             <button
               type="button"
               onClick={() => setViewMode("lista")}
-              className={`p-2 text-xs flex items-center gap-1.5 transition-colors ${
+              className={`px-3 py-2 text-xs flex items-center gap-1.5 transition-colors ${
                 viewMode === "lista"
-                  ? "bg-[#C9A227] text-[#080808] font-medium"
+                  ? "bg-[#C9A227] text-[#080808] font-semibold"
                   : "text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
               }`}
               title="Vista de Lista General"
             >
-              <List size={14} />
-              <span className="hidden md:inline text-[11px] tracking-wider uppercase">Lista</span>
+              <List size={13} />
+              <span className="text-[11px] tracking-wider uppercase">Lista</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Helper actions when in folder view */}
-      {viewMode === "carpetas" && !loading && (
-        <div className="flex items-center justify-between text-xs text-[#F5F5F3]/40 mb-3 px-1">
-          <span>Agrupados por Carpeta de Caso</span>
+      {/* Helper actions when in sections view */}
+      {viewMode === "secciones" && !loading && (
+        <div className="flex items-center justify-between text-xs text-[#F5F5F3]/40 mb-4 px-1">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-[#C9A227]"></span>
+            <span>Organizado por Secciones de Expediente</span>
+          </div>
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setCollapsedFolders({})}
+              onClick={() => setCollapsedSections({})}
               className="hover:text-[#C9A227] transition-colors"
             >
               Expandir todas
@@ -398,9 +456,9 @@ export default function Documentos() {
             <button
               onClick={() => {
                 const all = {};
-                cases.forEach(c => { all[c.id] = true; });
+                visibleCases.forEach(c => { all[c.id] = true; });
                 all["unassigned"] = true;
-                setCollapsedFolders(all);
+                setCollapsedSections(all);
               }}
               className="hover:text-[#C9A227] transition-colors"
             >
@@ -414,9 +472,9 @@ export default function Documentos() {
         <p className="text-[#F5F5F3]/30 text-sm">Cargando documentos…</p>
       ) : (
         <>
-          {/* VISTA 1: CARPETAS POR CASO */}
-          {viewMode === "carpetas" && (
-            <div className="space-y-3">
+          {/* VISTA 1: SECCIONES POR CASO */}
+          {viewMode === "secciones" && (
+            <div className="space-y-4">
               {(() => {
                 // Group filtered documents by case
                 const docsByCase = {};
@@ -431,14 +489,42 @@ export default function Documentos() {
                   }
                 });
 
-                const caseIds = Object.keys(docsByCase);
+                // Determine which case sections to show
+                let sectionsToRender = [...visibleCases];
 
-                if (caseIds.length === 0 && unassignedDocs.length === 0) {
+                if (filterCase !== "all") {
+                  if (filterCase === "unassigned") {
+                    sectionsToRender = [];
+                  } else {
+                    sectionsToRender = visibleCases.filter(c => c.id === filterCase);
+                  }
+                } else if (searchTerm.trim()) {
+                  const term = searchTerm.toLowerCase().trim();
+                  sectionsToRender = visibleCases.filter(c => 
+                    (docsByCase[c.id] && docsByCase[c.id].length > 0) ||
+                    (c.title || "").toLowerCase().includes(term) ||
+                    (c.case_number || "").toLowerCase().includes(term) ||
+                    (c.client || "").toLowerCase().includes(term)
+                  );
+                }
+
+                // Sort: cases with documents first, then alphabetically
+                sectionsToRender.sort((a, b) => {
+                  const countA = (docsByCase[a.id] || []).length;
+                  const countB = (docsByCase[b.id] || []).length;
+                  if (countA > 0 && countB === 0) return -1;
+                  if (countA === 0 && countB > 0) return 1;
+                  return (a.title || "").localeCompare(b.title || "");
+                });
+
+                const showUnassigned = (!filterCase || filterCase === "all" || filterCase === "unassigned") && unassignedDocs.length > 0;
+
+                if (sectionsToRender.length === 0 && !showUnassigned) {
                   return (
                     <div className="bg-[#080808] border border-[#1A1A1A] text-center py-16">
                       <Folder size={32} className="text-[#F5F5F3]/10 mx-auto mb-3" />
                       <p className="text-[#F5F5F3]/20 text-sm">
-                        {searchTerm ? "No se encontraron documentos en carpetas para esta búsqueda" : "Sin documentos"}
+                        {searchTerm ? "No se encontraron expedientes ni documentos para esta búsqueda" : "Sin documentos registrados"}
                       </p>
                     </div>
                   );
@@ -446,244 +532,306 @@ export default function Documentos() {
 
                 return (
                   <>
-                    {/* Render each case folder */}
-                    {caseIds.map((caseId) => {
-                      const caseObj = cases.find((c) => c.id === caseId);
-                      const caseDocs = docsByCase[caseId] || [];
-                      const isCollapsed = !!collapsedFolders[caseId];
+                    {/* Render each case section */}
+                    {sectionsToRender.map((caseObj) => {
+                      const caseDocs = docsByCase[caseObj.id] || [];
+                      const isCollapsed = !!collapsedSections[caseObj.id];
 
                       return (
                         <div
-                          key={caseId}
-                          className="bg-[#080808] border border-[#1A1A1A] overflow-hidden transition-colors hover:border-[#262626]"
+                          key={caseObj.id}
+                          className="bg-[#090909] border border-[#1A1A1A] rounded overflow-hidden transition-all hover:border-[#2A2A2A] shadow-lg shadow-black/40"
                         >
-                          {/* Folder Header */}
+                          {/* Case Section Header */}
                           <div
                             onClick={() =>
-                              setCollapsedFolders((prev) => ({
+                              setCollapsedSections((prev) => ({
                                 ...prev,
-                                [caseId]: !prev[caseId],
+                                [caseObj.id]: !prev[caseObj.id],
                               }))
                             }
-                            className="p-4 bg-[#0A0A0A] flex items-center justify-between cursor-pointer select-none hover:bg-[#0E0E0E] transition-colors"
+                            className="p-4 sm:p-5 bg-gradient-to-r from-[#111111] via-[#0D0D0D] to-[#111111] border-b border-[#1A1A1A] flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer select-none hover:bg-[#131313] transition-colors"
                           >
-                            <div className="flex items-center gap-3 min-w-0 flex-1">
-                              {isCollapsed ? (
-                                <Folder size={18} className="text-[#C9A227] flex-shrink-0" />
-                              ) : (
-                                <FolderOpen size={18} className="text-[#C9A227] flex-shrink-0" />
-                              )}
-                              <div className="min-w-0">
-                                <div className="flex items-center gap-2">
-                                  <h4 className="text-[#F5F5F3] text-sm font-medium truncate">
-                                    {caseObj?.title || "Caso sin título"}
-                                  </h4>
-                                  <span className="text-[10px] text-[#C9A227] font-mono bg-[#C9A227]/10 px-2 py-0.5 border border-[#C9A227]/20">
-                                    {caseObj?.case_number || "Folio"}
+                            <div className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1">
+                              <div className="w-10 h-10 rounded bg-[#161616] border border-[#222222] flex items-center justify-center flex-shrink-0 text-[#C9A227] shadow-inner">
+                                {isCollapsed ? <Folder size={18} /> : <FolderOpen size={18} />}
+                              </div>
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2 mb-1">
+                                  <h3 className="text-sm sm:text-base font-semibold text-[#F5F5F3] truncate hover:text-[#C9A227] transition-colors">
+                                    {caseObj.title || "Caso sin título"}
+                                  </h3>
+                                  <span className="text-[10px] text-[#C9A227] font-mono bg-[#C9A227]/10 px-2 py-0.5 border border-[#C9A227]/20 rounded">
+                                    {caseObj.case_number || "Folio"}
                                   </span>
+                                  {caseObj.practice_area && (
+                                    <span className="text-[9px] text-[#F5F5F3]/50 bg-[#161616] px-2 py-0.5 border border-[#222] uppercase tracking-wider rounded">
+                                      {caseObj.practice_area}
+                                    </span>
+                                  )}
                                 </div>
-                                <p className="text-[11px] text-[#F5F5F3]/40 truncate">
-                                  {caseObj?.client ? `Cliente: ${caseObj.client}` : ""}
-                                  {caseObj?.practice_area ? ` · ${caseObj.practice_area}` : ""}
-                                </p>
+
+                                <div className="flex flex-wrap items-center gap-3 text-xs text-[#F5F5F3]/40">
+                                  {caseObj.client && (
+                                    <span>Cliente: <strong className="text-[#F5F5F3]/70 font-normal">{caseObj.client}</strong></span>
+                                  )}
+                                  {caseObj.office && (
+                                    <span>· Oficina: <strong className="text-[#F5F5F3]/70 font-normal">{caseObj.office}</strong></span>
+                                  )}
+                                </div>
                               </div>
                             </div>
 
+                            {/* Section Controls */}
                             <div
-                              className="flex items-center gap-3 flex-shrink-0"
+                              className="flex items-center gap-2.5 self-end md:self-auto"
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <span className="text-xs text-[#F5F5F3]/60 bg-[#121212] px-2.5 py-1 border border-[#1E1E1E]">
+                              <span className={`text-xs px-2.5 py-1 rounded font-medium border ${
+                                caseDocs.length > 0 
+                                  ? "bg-[#C9A227]/10 text-[#C9A227] border-[#C9A227]/30" 
+                                  : "bg-[#141414] text-[#F5F5F3]/30 border-[#1E1E1E]"
+                              }`}>
                                 {caseDocs.length} {caseDocs.length === 1 ? "documento" : "documentos"}
                               </span>
+
                               {permissions?.can_create_documents && (
                                 <button
-                                  onClick={() => openNew(caseId)}
-                                  className="text-xs text-[#C9A227] hover:text-[#080808] hover:bg-[#C9A227] p-1.5 border border-[#C9A227]/30 transition-colors"
+                                  onClick={() => openNew(caseObj.id)}
+                                  className="text-xs text-[#080808] bg-[#C9A227] hover:bg-[#A8841D] px-3 py-1.5 flex items-center gap-1.5 font-medium rounded transition-colors"
                                   title="Subir documento a este caso"
                                 >
-                                  <Plus size={14} />
+                                  <Plus size={13} />
+                                  <span className="hidden sm:inline">Subir Documento</span>
                                 </button>
                               )}
+
                               <button
                                 onClick={() =>
-                                  setCollapsedFolders((prev) => ({
+                                  setCollapsedSections((prev) => ({
                                     ...prev,
-                                    [caseId]: !prev[caseId],
+                                    [caseObj.id]: !prev[caseObj.id],
                                   }))
                                 }
-                                className="text-[#F5F5F3]/40 hover:text-[#F5F5F3] p-1"
+                                className="p-1.5 text-[#F5F5F3]/40 hover:text-[#F5F5F3] hover:bg-[#1A1A1A] rounded transition-colors"
+                                title={isCollapsed ? "Expandir sección" : "Colapsar sección"}
                               >
-                                {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                                {isCollapsed ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
                               </button>
                             </div>
                           </div>
 
-                          {/* Folder Files List */}
+                          {/* Section Documents List or Empty State */}
                           {!isCollapsed && (
-                            <div className="border-t border-[#1A1A1A] divide-y divide-[#141414]">
-                              {caseDocs.map((d) => {
-                                const fType = getFileType(d);
-                                return (
-                                  <div
-                                    key={d.id}
-                                    onClick={() => { if (d.file_url) setViewingDoc(d); }}
-                                    className={`flex items-center justify-between p-4 pl-8 hover:bg-[#0F0F0F] transition-colors group ${d.file_url ? "cursor-pointer" : ""}`}
-                                  >
-                                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                                      <FileText size={16} className="text-[#C9A227] flex-shrink-0" />
-                                      <div className="min-w-0">
-                                        <div className="flex items-center gap-2">
-                                          <p className="text-[#F5F5F3] text-sm truncate group-hover:text-[#C9A227] transition-colors">{d.title}</p>
-                                          {fType === "word" && (
-                                            <span className="text-[9px] px-1.5 py-0.2 bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">
-                                              WORD
-                                            </span>
-                                          )}
-                                          {fType === "pdf" && (
-                                            <span className="text-[9px] px-1.5 py-0.2 bg-red-500/10 text-red-400 border border-red-500/20 font-mono">
-                                              PDF
-                                            </span>
-                                          )}
+                            <div>
+                              {caseDocs.length > 0 ? (
+                                <div className="divide-y divide-[#141414]">
+                                  {caseDocs.map((d) => {
+                                    const fType = getFileType(d);
+                                    return (
+                                      <div
+                                        key={d.id}
+                                        onClick={() => { if (d.file_url) setViewingDoc(d); }}
+                                        className={`flex items-center justify-between p-4 pl-6 sm:pl-8 hover:bg-[#0F0F0F] transition-colors group ${d.file_url ? "cursor-pointer" : ""}`}
+                                      >
+                                        <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                          <div className="w-8 h-8 rounded bg-[#141414] border border-[#202020] flex items-center justify-center flex-shrink-0 text-[#C9A227] group-hover:border-[#C9A227]/40 transition-colors">
+                                            <FileText size={16} />
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2">
+                                              <p className="text-[#F5F5F3] text-sm font-medium truncate group-hover:text-[#C9A227] transition-colors">
+                                                {d.title}
+                                              </p>
+                                              {fType === "word" && (
+                                                <span className="text-[9px] px-1.5 py-0.2 bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono rounded">
+                                                  WORD
+                                                </span>
+                                              )}
+                                              {fType === "pdf" && (
+                                                <span className="text-[9px] px-1.5 py-0.2 bg-red-500/10 text-red-400 border border-red-500/20 font-mono rounded">
+                                                  PDF
+                                                </span>
+                                              )}
+                                            </div>
+                                            <p className="text-[#F5F5F3]/30 text-[11px] truncate mt-0.5">
+                                              <span className="text-[#F5F5F3]/60">{docTypeLabels[d.doc_type] || cap(d.doc_type)}</span>
+                                              {d.lawyer ? ` · ${d.lawyer}` : " · Sin abogado"}
+                                              {d.file_name ? ` · ${d.file_name}` : ""}
+                                              {` · ${new Date(d.created_at).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}`}
+                                            </p>
+                                          </div>
                                         </div>
-                                        <p className="text-[#F5F5F3]/30 text-[11px] truncate">
-                                          {docTypeLabels[d.doc_type] || cap(d.doc_type)}
-                                          {d.lawyer ? ` · ${d.lawyer}` : " · Sin abogado"}
-                                          {d.file_name ? ` · ${d.file_name}` : ""}
-                                          {` · ${new Date(d.created_at).toLocaleDateString("es")}`}
-                                        </p>
-                                      </div>
-                                    </div>
 
-                                    <div className="flex items-center gap-3 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                                      <span className={`text-[9px] tracking-wider uppercase px-2 py-1 ${statusColors[d.status] || ""}`}>{d.status}</span>
-                                      {d.file_url && (
-                                        <div className="flex items-center gap-1">
-                                          <button
-                                            type="button"
-                                            onClick={() => setViewingDoc(d)}
-                                            className="p-1.5 text-[#F5F5F3]/40 hover:text-[#C9A227] transition-colors"
-                                            title="Visualizar documento"
-                                          >
-                                            <Eye size={15} />
-                                          </button>
-                                          <a
-                                            href={d.file_url}
-                                            download={d.file_name || d.title}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="p-1.5 text-[#F5F5F3]/30 hover:text-[#C9A227] transition-colors"
-                                            title="Descargar archivo original"
-                                          >
-                                            <Download size={15} />
-                                          </a>
+                                        <div className="flex items-center gap-2.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                          <span className={`text-[9px] tracking-wider uppercase px-2 py-1 rounded ${statusColors[d.status] || ""}`}>
+                                            {d.status}
+                                          </span>
+                                          {d.file_url && (
+                                            <div className="flex items-center gap-1">
+                                              <button
+                                                type="button"
+                                                onClick={() => setViewingDoc(d)}
+                                                className="p-1.5 text-[#F5F5F3]/40 hover:text-[#C9A227] hover:bg-[#161616] rounded transition-colors"
+                                                title="Visualizar documento"
+                                              >
+                                                <Eye size={15} />
+                                              </button>
+                                              <a
+                                                href={d.file_url}
+                                                download={d.file_name || d.title}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="p-1.5 text-[#F5F5F3]/30 hover:text-[#C9A227] hover:bg-[#161616] rounded transition-colors"
+                                                title="Descargar archivo original"
+                                              >
+                                                <Download size={15} />
+                                              </a>
+                                            </div>
+                                          )}
+                                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            {permissions?.can_edit_documents && (
+                                              <button onClick={() => openEdit(d)} className="p-1.5 text-[#F5F5F3]/30 hover:text-[#C9A227] hover:bg-[#161616] rounded transition-colors" title="Editar"><Pencil size={14} /></button>
+                                            )}
+                                            {permissions?.can_delete_documents && (
+                                              <button onClick={() => remove(d)} className="p-1.5 text-[#F5F5F3]/30 hover:text-red-400 hover:bg-[#161616] rounded transition-colors" title="Eliminar"><Trash2 size={14} /></button>
+                                            )}
+                                          </div>
                                         </div>
-                                      )}
-                                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        {permissions?.can_edit_documents && (
-                                          <button onClick={() => openEdit(d)} className="p-1 text-[#F5F5F3]/30 hover:text-[#C9A227] transition-colors" title="Editar"><Pencil size={14} /></button>
-                                        )}
-                                        {permissions?.can_delete_documents && (
-                                          <button onClick={() => remove(d)} className="p-1 text-[#F5F5F3]/30 hover:text-red-400 transition-colors" title="Eliminar"><Trash2 size={14} /></button>
-                                        )}
                                       </div>
-                                    </div>
-                                  </div>
-                                );
-                              })}
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="p-8 text-center bg-[#070707]">
+                                  <p className="text-xs text-[#F5F5F3]/30 mb-2.5">
+                                    Este expediente aún no cuenta con documentos subidos.
+                                  </p>
+                                  {permissions?.can_create_documents && (
+                                    <button
+                                      onClick={() => openNew(caseObj.id)}
+                                      className="inline-flex items-center gap-1.5 text-xs text-[#C9A227] hover:text-[#080808] hover:bg-[#C9A227] px-3 py-1.5 border border-[#C9A227]/40 transition-colors rounded font-medium"
+                                    >
+                                      <Plus size={13} />
+                                      <span>Subir primer documento a este caso</span>
+                                    </button>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           )}
                         </div>
                       );
                     })}
 
-                    {/* Unassigned Documents Folder */}
-                    {unassignedDocs.length > 0 && (
-                      <div className="bg-[#080808] border border-[#1A1A1A] overflow-hidden transition-colors hover:border-[#262626]">
+                    {/* Unassigned / General Documents Section */}
+                    {showUnassigned && (
+                      <div className="bg-[#090909] border border-[#222222] rounded overflow-hidden transition-all hover:border-[#2A2A2A] shadow-lg shadow-black/40">
                         <div
                           onClick={() =>
-                            setCollapsedFolders((prev) => ({
+                            setCollapsedSections((prev) => ({
                               ...prev,
                               unassigned: !prev["unassigned"],
                             }))
                           }
-                          className="p-4 bg-[#0A0A0A] flex items-center justify-between cursor-pointer select-none hover:bg-[#0E0E0E] transition-colors"
+                          className="p-4 sm:p-5 bg-gradient-to-r from-[#141414] via-[#0E0E0E] to-[#141414] border-b border-[#1A1A1A] flex flex-col md:flex-row md:items-center justify-between gap-3 cursor-pointer select-none hover:bg-[#161616] transition-colors"
                         >
-                          <div className="flex items-center gap-3 min-w-0 flex-1">
-                            {collapsedFolders["unassigned"] ? (
-                              <Folder size={18} className="text-[#F5F5F3]/40 flex-shrink-0" />
-                            ) : (
-                              <FolderOpen size={18} className="text-[#F5F5F3]/40 flex-shrink-0" />
-                            )}
-                            <div className="min-w-0">
-                              <h4 className="text-[#F5F5F3] text-sm font-medium truncate">
-                                Documentos Generales (Sin Caso Asociado)
-                              </h4>
-                              <p className="text-[11px] text-[#F5F5F3]/30">Documentos no vinculados a ningún expediente específico</p>
+                          <div className="flex items-start sm:items-center gap-3.5 min-w-0 flex-1">
+                            <div className="w-10 h-10 rounded bg-[#161616] border border-[#222222] flex items-center justify-center flex-shrink-0 text-[#F5F5F3]/50">
+                              <Layers size={18} />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2 mb-1">
+                                <h3 className="text-sm sm:text-base font-semibold text-[#F5F5F3] truncate">
+                                  Documentos Generales (Sin Expediente)
+                                </h3>
+                                <span className="text-[10px] text-[#F5F5F3]/50 bg-[#181818] px-2 py-0.5 border border-[#252525] rounded">
+                                  Contratos generales, plantillas y archivos
+                                </span>
+                              </div>
+                              <p className="text-xs text-[#F5F5F3]/40">
+                                Documentos no asociados a un expediente particular
+                              </p>
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-3 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                            <span className="text-xs text-[#F5F5F3]/60 bg-[#121212] px-2.5 py-1 border border-[#1E1E1E]">
-                              {unassignedDocs.length} documentos
+                          <div className="flex items-center gap-2.5 self-end md:self-auto" onClick={(e) => e.stopPropagation()}>
+                            <span className="text-xs px-2.5 py-1 rounded font-medium border bg-[#181818] text-[#F5F5F3]/60 border-[#262626]">
+                              {unassignedDocs.length} {unassignedDocs.length === 1 ? "documento" : "documentos"}
                             </span>
+                            {permissions?.can_create_documents && (
+                              <button
+                                onClick={() => openNew("")}
+                                className="text-xs text-[#080808] bg-[#C9A227] hover:bg-[#A8841D] px-3 py-1.5 flex items-center gap-1.5 font-medium rounded transition-colors"
+                              >
+                                <Plus size={13} />
+                                <span className="hidden sm:inline">Subir Documento</span>
+                              </button>
+                            )}
                             <button
                               onClick={() =>
-                                setCollapsedFolders((prev) => ({
+                                setCollapsedSections((prev) => ({
                                   ...prev,
                                   unassigned: !prev["unassigned"],
                                 }))
                               }
-                              className="text-[#F5F5F3]/40 hover:text-[#F5F5F3] p-1"
+                              className="p-1.5 text-[#F5F5F3]/40 hover:text-[#F5F5F3] hover:bg-[#1A1A1A] rounded transition-colors"
                             >
-                              {collapsedFolders["unassigned"] ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+                              {collapsedSections["unassigned"] ? <ChevronRight size={18} /> : <ChevronDown size={18} />}
                             </button>
                           </div>
                         </div>
 
-                        {!collapsedFolders["unassigned"] && (
-                          <div className="border-t border-[#1A1A1A] divide-y divide-[#141414]">
+                        {!collapsedSections["unassigned"] && (
+                          <div className="divide-y divide-[#141414]">
                             {unassignedDocs.map((d) => {
                               const fType = getFileType(d);
                               return (
                                 <div
                                   key={d.id}
                                   onClick={() => { if (d.file_url) setViewingDoc(d); }}
-                                  className={`flex items-center justify-between p-4 pl-8 hover:bg-[#0F0F0F] transition-colors group ${d.file_url ? "cursor-pointer" : ""}`}
+                                  className={`flex items-center justify-between p-4 pl-6 sm:pl-8 hover:bg-[#0F0F0F] transition-colors group ${d.file_url ? "cursor-pointer" : ""}`}
                                 >
-                                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                                    <FileText size={16} className="text-[#C9A227] flex-shrink-0" />
-                                    <div className="min-w-0">
+                                  <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                                    <div className="w-8 h-8 rounded bg-[#141414] border border-[#202020] flex items-center justify-center flex-shrink-0 text-[#C9A227] group-hover:border-[#C9A227]/40 transition-colors">
+                                      <FileText size={16} />
+                                    </div>
+                                    <div className="min-w-0 flex-1">
                                       <div className="flex items-center gap-2">
-                                        <p className="text-[#F5F5F3] text-sm truncate group-hover:text-[#C9A227] transition-colors">{d.title}</p>
+                                        <p className="text-[#F5F5F3] text-sm font-medium truncate group-hover:text-[#C9A227] transition-colors">
+                                          {d.title}
+                                        </p>
                                         {fType === "word" && (
-                                          <span className="text-[9px] px-1.5 py-0.2 bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">
+                                          <span className="text-[9px] px-1.5 py-0.2 bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono rounded">
                                             WORD
                                           </span>
                                         )}
                                         {fType === "pdf" && (
-                                          <span className="text-[9px] px-1.5 py-0.2 bg-red-500/10 text-red-400 border border-red-500/20 font-mono">
+                                          <span className="text-[9px] px-1.5 py-0.2 bg-red-500/10 text-red-400 border border-red-500/20 font-mono rounded">
                                             PDF
                                           </span>
                                         )}
                                       </div>
-                                      <p className="text-[#F5F5F3]/30 text-[11px] truncate">
-                                        {docTypeLabels[d.doc_type] || cap(d.doc_type)}
+                                      <p className="text-[#F5F5F3]/30 text-[11px] truncate mt-0.5">
+                                        <span className="text-[#F5F5F3]/60">{docTypeLabels[d.doc_type] || cap(d.doc_type)}</span>
                                         {d.lawyer ? ` · ${d.lawyer}` : " · Sin abogado"}
                                         {d.file_name ? ` · ${d.file_name}` : ""}
-                                        {` · ${new Date(d.created_at).toLocaleDateString("es")}`}
+                                        {` · ${new Date(d.created_at).toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" })}`}
                                       </p>
                                     </div>
                                   </div>
 
-                                  <div className="flex items-center gap-3 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-                                    <span className={`text-[9px] tracking-wider uppercase px-2 py-1 ${statusColors[d.status] || ""}`}>{d.status}</span>
+                                  <div className="flex items-center gap-2.5 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+                                    <span className={`text-[9px] tracking-wider uppercase px-2 py-1 rounded ${statusColors[d.status] || ""}`}>
+                                      {d.status}
+                                    </span>
                                     {d.file_url && (
                                       <div className="flex items-center gap-1">
                                         <button
                                           type="button"
                                           onClick={() => setViewingDoc(d)}
-                                          className="p-1.5 text-[#F5F5F3]/40 hover:text-[#C9A227] transition-colors"
+                                          className="p-1.5 text-[#F5F5F3]/40 hover:text-[#C9A227] hover:bg-[#161616] rounded transition-colors"
                                           title="Visualizar documento"
                                         >
                                           <Eye size={15} />
@@ -693,7 +841,7 @@ export default function Documentos() {
                                           download={d.file_name || d.title}
                                           target="_blank"
                                           rel="noopener noreferrer"
-                                          className="p-1.5 text-[#F5F5F3]/30 hover:text-[#C9A227] transition-colors"
+                                          className="p-1.5 text-[#F5F5F3]/30 hover:text-[#C9A227] hover:bg-[#161616] rounded transition-colors"
                                           title="Descargar archivo original"
                                         >
                                           <Download size={15} />
@@ -702,10 +850,10 @@ export default function Documentos() {
                                     )}
                                     <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                       {permissions?.can_edit_documents && (
-                                        <button onClick={() => openEdit(d)} className="p-1 text-[#F5F5F3]/30 hover:text-[#C9A227] transition-colors" title="Editar"><Pencil size={14} /></button>
+                                        <button onClick={() => openEdit(d)} className="p-1.5 text-[#F5F5F3]/30 hover:text-[#C9A227] hover:bg-[#161616] rounded transition-colors" title="Editar"><Pencil size={14} /></button>
                                       )}
                                       {permissions?.can_delete_documents && (
-                                        <button onClick={() => remove(d)} className="p-1 text-[#F5F5F3]/30 hover:text-red-400 transition-colors" title="Eliminar"><Trash2 size={14} /></button>
+                                        <button onClick={() => remove(d)} className="p-1.5 text-[#F5F5F3]/30 hover:text-red-400 hover:bg-[#161616] rounded transition-colors" title="Eliminar"><Trash2 size={14} /></button>
                                       )}
                                     </div>
                                   </div>

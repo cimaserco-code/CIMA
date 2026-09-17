@@ -57,7 +57,31 @@ function formatRelativeTime(dateStr) {
   if (diffHours < 24) return `Hace ${diffHours} ${diffHours === 1 ? 'hora' : 'horas'}`;
   if (diffDays === 1) return "Ayer";
   if (diffDays < 7) return `Hace ${diffDays} días`;
-  return date.toLocaleDateString("es", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+  return date.toLocaleDateString("es-MX", { day: "numeric", month: "short", year: "numeric" });
+}
+
+function formatDateTimeDetails(dateStr) {
+  if (!dateStr) return { date: "Sin fecha", time: "Sin hora", relative: "" };
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return { date: String(dateStr), time: "", relative: "" };
+
+  const date = d.toLocaleDateString("es-MX", {
+    day: "numeric",
+    month: "short",
+    year: "numeric"
+  });
+
+  const time = d.toLocaleTimeString("es-MX", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: true
+  });
+
+  return {
+    date,
+    time,
+    relative: formatRelativeTime(dateStr)
+  };
 }
 
 export default function Actualizaciones({ embedded = false }) {
@@ -124,15 +148,15 @@ export default function Actualizaciones({ embedded = false }) {
         />
       )}
 
-      {/* Admin Notice if using fallback */}
-      {isAdmin && source === "messages_fallback" && (
+      {/* Admin Notice if using aggregated sync */}
+      {isAdmin && source === "aggregated" && (
         <div className="p-4 bg-[#0F0F0F] border border-[#C9A227]/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-start gap-3">
             <Database size={18} className="text-[#C9A227] flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-xs text-[#F5F5F3] font-medium">Registro activo mediante canal de respaldo</p>
+              <p className="text-xs text-[#F5F5F3] font-medium">Sincronización en tiempo real activa</p>
               <p className="text-[11px] text-[#F5F5F3]/50 mt-0.5">
-                Las actividades se están guardando con éxito. Para habilitar la tabla dedicada <code className="text-[#C9A227]">activity_logs</code> en Supabase, puedes ejecutar el script SQL oficial.
+                Se están recopilando automáticamente todas las subidas de documentos, casos y tareas del sistema. Opcionalmente puedes ejecutar el script SQL en Supabase para habilitar la tabla dedicada.
               </p>
             </div>
           </div>
@@ -207,26 +231,28 @@ export default function Actualizaciones({ embedded = false }) {
               icon: History
             };
             const ActionIcon = actionStyle.icon;
+            const timeInfo = formatDateTimeDetails(act.created_at);
 
             return (
               <div 
                 key={act.id} 
-                className="p-4 hover:bg-[#0F0F0F] transition-colors flex items-start sm:items-center justify-between gap-4 group"
+                className="p-4 hover:bg-[#0F0F0F] transition-colors flex flex-col md:flex-row md:items-center justify-between gap-4 group"
               >
                 <div className="flex items-start gap-3.5 min-w-0 flex-1">
-                  <div className="w-8 h-8 rounded-full bg-[#121212] border border-[#1E1E1E] flex items-center justify-center flex-shrink-0 mt-0.5 sm:mt-0 text-[#C9A227] group-hover:border-[#C9A227]/40 transition-colors">
-                    <ModIcon size={14} />
+                  <div className="w-9 h-9 rounded bg-[#121212] border border-[#1E1E1E] flex items-center justify-center flex-shrink-0 mt-0.5 text-[#C9A227] group-hover:border-[#C9A227]/40 transition-colors">
+                    <ModIcon size={16} />
                   </div>
 
                   <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
+                    <div className="flex flex-wrap items-center gap-2 mb-1.5">
                       <span className="text-xs font-semibold text-[#F5F5F3]">{act.user_name}</span>
                       {act.user_email && (
                         <span className="text-[10px] text-[#F5F5F3]/30 hidden md:inline">
                           ({act.user_email})
                         </span>
                       )}
-                      <span className={`text-[8px] tracking-wider uppercase px-2 py-0.5 border ${actionStyle.color} font-medium`}>
+                      <span className={`text-[9px] tracking-wider uppercase px-2 py-0.5 border ${actionStyle.color} font-medium flex items-center gap-1`}>
+                        <ActionIcon size={10} />
                         {actionStyle.label}
                       </span>
                       <span className="text-[9px] text-[#C9A227] bg-[#C9A227]/10 px-2 py-0.5 tracking-wider uppercase border border-[#C9A227]/20">
@@ -234,20 +260,44 @@ export default function Actualizaciones({ embedded = false }) {
                       </span>
                     </div>
 
-                    <p className="text-xs text-[#F5F5F3]/80 break-words leading-relaxed">
+                    <p className="text-xs text-[#F5F5F3]/85 break-words leading-relaxed">
                       {act.description}
                     </p>
+
+                    {/* Enlace directo al archivo si es un documento subido */}
+                    {act.metadata?.file_url && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <a
+                          href={act.metadata.file_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 text-[11px] text-[#C9A227] hover:underline bg-[#161616] px-2.5 py-1 border border-[#252525] rounded transition-colors"
+                        >
+                          <FileText size={12} />
+                          <span>Ver archivo adjunto ({act.metadata.file_name || 'Descargar'})</span>
+                        </a>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                <div className="flex flex-col items-end flex-shrink-0 text-right">
-                  <span className="text-[11px] text-[#F5F5F3]/40 flex items-center gap-1 whitespace-nowrap">
-                    <Clock size={11} className="text-[#C9A227]/60" />
-                    {formatRelativeTime(act.created_at)}
-                  </span>
-                  <span className="text-[9px] text-[#F5F5F3]/20 hidden sm:inline mt-0.5">
-                    {new Date(act.created_at).toLocaleDateString("es", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-                  </span>
+                {/* Bloque destacado de Fecha y Hora */}
+                <div className="flex md:flex-col items-start md:items-end justify-between md:justify-center flex-shrink-0 bg-[#111111] border border-[#1E1E1E] px-3.5 py-2.5 rounded gap-1.5 self-stretch md:self-auto min-w-[175px]">
+                  <div className="flex items-center gap-1.5 text-xs text-[#F5F5F3]">
+                    <Calendar size={12} className="text-[#C9A227] flex-shrink-0" />
+                    <span className="text-[#F5F5F3]/40 text-[10px] uppercase tracking-wider font-semibold">Fecha:</span>
+                    <span className="font-medium text-[11px]">{timeInfo.date}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-[#C9A227]">
+                    <Clock size={12} className="text-[#C9A227] flex-shrink-0" />
+                    <span className="text-[#F5F5F3]/40 text-[10px] uppercase tracking-wider font-semibold">Hora:</span>
+                    <span className="font-bold text-[11px]">{timeInfo.time}</span>
+                  </div>
+                  {timeInfo.relative && (
+                    <span className="text-[10px] text-[#F5F5F3]/30 md:mt-0.5">
+                      {timeInfo.relative}
+                    </span>
+                  )}
                 </div>
               </div>
             );
