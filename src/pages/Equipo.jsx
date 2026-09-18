@@ -4,6 +4,7 @@ import { Mail, Phone, Users, Pencil } from "lucide-react";
 import PageHeader from "@/components/legal/PageHeader";
 import Modal from "@/components/legal/Modal";
 import { useAuth } from "@/lib/AuthContext";
+import { filterMembersByArea } from "@/lib/areaPermissions";
 
 const roleColors = { 
   admin: "text-[#C9A227] bg-[#C9A227]/10", 
@@ -17,7 +18,7 @@ const EMPTY = { full_name: "", role: "Usuario", email: "", phone: "", bio: "" };
 const initials = (name) => name?.split(" ").map((n) => n[0]).slice(0, 2).join("") || "·";
 
 export default function Equipo() {
-  const { profile } = useAuth();
+  const { profile, permissions } = useAuth();
   const canEditTeam = ["Admin", "Direccion General", "Direccion de Area"].includes(profile?.role);
   const canChangeRole = ["Admin", "Direccion de Area"].includes(profile?.role);
 
@@ -59,7 +60,9 @@ export default function Equipo() {
 
   useEffect(() => { load(); }, []);
 
-  const filtered = filterRole === "all" ? members : members.filter((m) => m.role === filterRole);
+  const visibleMembers = filterMembersByArea(members, profile, permissions);
+  const visibleRoles = Array.from(new Set(visibleMembers.map(m => m.role).filter(Boolean)));
+  const filtered = filterRole === "all" ? visibleMembers : visibleMembers.filter((m) => m.role === filterRole);
 
   const getMemberAreaInfo = (member) => {
     if (!member) return { name: "Sin Área", tag: "SIN ÁREA", type: "general" };
@@ -152,12 +155,12 @@ export default function Equipo() {
 
   return (
     <div>
-      <PageHeader title="Equipo" subtitle={`${members.length} miembros`} />
+      <PageHeader title="Equipo" subtitle={`${visibleMembers.length} miembros`} />
 
       <div className="flex flex-wrap gap-2 mb-6">
         <select value={filterRole} onChange={(e) => setFilterRole(e.target.value)} className="bg-[#080808] border border-[#1A1A1A] text-[#F5F5F3]/60 text-xs px-3 py-2 focus:outline-none focus:border-[#C9A227]">
           <option value="all">Todos los roles</option>
-          {roles.map((r) => <option key={r} value={r}>{r}</option>)}
+          {visibleRoles.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
       </div>
 

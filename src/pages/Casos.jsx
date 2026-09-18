@@ -9,6 +9,8 @@ import { useAuth } from "@/lib/AuthContext";
 import { cap } from "@/lib/format";
 import { logActivity } from "@/lib/activityLogger";
 import { createNotification } from "@/lib/notificationService";
+import { toast } from "@/components/ui/use-toast";
+import { filterMembersByArea } from "@/lib/areaPermissions";
 
 const PRACTICE_AREAS = ["Litigio", "Corporativo", "M&A", "Propiedad Intelectual", "Regulatorio", "Arbitraje", "Fiscal", "Laboral"];
 const STATUSES = ["activo", "en_proceso", "en_espera", "cerrado", "archivado"];
@@ -210,15 +212,30 @@ export default function Casos() {
       
       // Notificar a los abogados asignados
       const assigned = toArray(form.assigned_lawyer);
+      const userNameLower = (profile?.full_name || "").toLowerCase().trim();
+      const userEmailLower = (user?.email || "").toLowerCase().trim();
+
       for (const lawyerName of assigned) {
+        const notifTitle = editingId ? "Caso actualizado" : "Nuevo caso asignado";
+        const notifMsg = `Te han asignado el caso "${form.title}" (${form.case_number})`;
+
         createNotification({
           recipientName: lawyerName,
           type: "caso",
-          title: editingId ? "Caso actualizado" : "Nuevo caso asignado",
-          message: `Te han asignado el caso "${form.title}" (${form.case_number})`,
+          title: notifTitle,
+          message: notifMsg,
           link: "/casos",
           metadata: { case_number: form.case_number, case_title: form.title }
         });
+
+        // Popup inmediato si el usuario autenticado es uno de los asignados
+        const lLower = String(lawyerName).toLowerCase().trim();
+        if ((userNameLower && lLower.includes(userNameLower)) || (userEmailLower && lLower.includes(userEmailLower))) {
+          toast({
+            title: notifTitle,
+            description: notifMsg
+          });
+        }
       }
 
       setModalOpen(false); setForm(EMPTY); setEditingId(null); load();
@@ -263,9 +280,9 @@ export default function Casos() {
   }
 
   const activeCaseAreaId = form.area_id || (!isAdmin ? profile?.area_id : null);
-  const eligibleMembersForCase = activeCaseAreaId
-    ? members.filter((m) => m.area_id === activeCaseAreaId || !m.area_id || ['Admin', 'Direccion General'].includes(m.role))
-    : members;
+  const eligibleMembersForCase = activeCaseAreaId && isAdmin
+    ? filterMembersByArea(members, { area_id: activeCaseAreaId }, { can_view_all_cases: false })
+    : filterMembersByArea(members, profile, permissions);
 
   return (
     <div>

@@ -5,6 +5,7 @@ import PageHeader from "@/components/legal/PageHeader";
 import Modal from "@/components/legal/Modal";
 import { useAuth } from "@/lib/AuthContext";
 import { cap } from "@/lib/format";
+import { isResourceInUserArea } from "@/lib/areaPermissions";
 
 const EMPTY = { full_name: "", email: "", phone: "", area_id: "", user_id: "" };
 
@@ -52,8 +53,18 @@ export default function Clientes() {
 
   useEffect(() => { load(); }, []);
 
-  // Filter clients based on Area (if not admin/global view)
-  const visibleClients = clients.filter(c => isAdmin || c.area_id === profile?.area_id);
+  // Filter clients strictly based on Area (if not admin/global view)
+  const visibleClients = clients.filter(c => {
+    if (isAdmin) return true;
+    if (c.area_id) {
+      return isResourceInUserArea(c, profile, { cases }, permissions);
+    }
+    const relatedCases = cases.filter(cs => cs.client_id === c.id);
+    if (relatedCases.length > 0) {
+      return relatedCases.some(cs => isResourceInUserArea(cs, profile, { cases }, permissions));
+    }
+    return false;
+  });
 
   // Search filter
   const filtered = visibleClients.filter(c => 

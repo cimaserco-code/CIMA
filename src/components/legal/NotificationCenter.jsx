@@ -2,7 +2,9 @@ import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bell, Check, CheckCheck, Briefcase, CheckSquare, FileText, Calendar, ExternalLink, X } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
-import { fetchUserNotifications, markNotificationAsRead, markAllNotificationsAsRead } from "@/lib/notificationService";
+import { fetchUserNotifications, markNotificationAsRead, markAllNotificationsAsRead, createNotification } from "@/lib/notificationService";
+import { toast } from "@/components/ui/use-toast";
+import { supabase } from "@/lib/supabaseClient";
 
 const TYPE_ICONS = {
   caso: { icon: Briefcase, color: "text-[#C9A227] bg-[#C9A227]/10 border-[#C9A227]/20" },
@@ -38,6 +40,7 @@ export default function NotificationCenter() {
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const containerRef = useRef(null);
+  const knownIdsRef = useRef(null);
 
   const loadNotifications = async () => {
     if (!user && !profile) return;
@@ -47,16 +50,126 @@ export default function NotificationCenter() {
         userEmail: user?.email,
         userName: profile?.full_name
       });
-      setNotifications(data || []);
+
+      const list = data || [];
+
+      // If already initialized, show pop-up toast for any brand new unread notifications
+      if (knownIdsRef.current !== null) {
+        for (const n of list) {
+          if (!n.read && !knownIdsRef.current.has(n.id)) {
+            toast({
+              title: n.title || "Nueva Notificación",
+              description: n.message || ""
+            });
+            knownIdsRef.current.add(n.id);
+          }
+        }
+      } else {
+        // Initial load: populate known IDs without spamming pop-ups
+        knownIdsRef.current = new Set(list.map(n => n.id));
+      }
+
+      setNotifications(list);
     } catch (err) {
       console.warn("Error cargando notificaciones:", err);
     }
   };
 
+  const checkEventReminders = async () => {
+    if (!user && !profile) return;
+    try {
+      // Formato YYYY-MM-DD local
+      const now = new Date();
+      const pad = (num) => String(num).padStart(2, "0");
+      const todayStr = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+      const { data: todayEvents } = await supabase
+        .from("calendar_events")
+        .select("*")
+        .gte("event_date", todayStr)
+        .lte("event_date", todayStr);
+
+      if (!todayEvents || todayEvents.length === 0) return;
+
+      const userNameLower = (profile?.full_name || "").toLowerCase().trim();
+      const userEmailLower = (user?.email || "").toLowerCase().trim();
+
+      for (const ev of todayEvents) {
+        const assigned = Array.isArray(ev.assigned_lawyers)
+          ? ev.assigned_lawyers
+          : (ev.assigned_lawyers ? [ev.assigned_lawyers] : []);
+
+        const isAssignedToMe = assigned.some(name => {
+          const lName = String(name).toLowerCase().trim();
+          return (
+            (userNameLower && (lName.includes(userNameLower) || userNameLower.includes(lName))) ||
+            (userEmailLower && lName.includes(userEmailLower))
+          );
+        });
+
+        if (!isAssignedToMe) continue;
+
+        let evTime = ev.event_time || "09:00";
+        const timeParts = evTime.split(":");
+        const hours = parseInt(timeParts[0], 10) || 0;
+        const minutes = parseInt(timeParts[1], 10) || 0;
+
+        const dateParts = ev.event_date.split("-");
+        const evDate = new Date(
+          parseInt(dateParts[0], 10),
+          parseInt(dateParts[1], 10) - 1,
+          parseInt(dateParts[2], 10),
+          hours,
+          minutes,
+          0
+        );
+
+        const diffMs = evDate.getTime() - now.getTime();
+        const diffMinutes = Math.round(diffMs / 60000);
+
+        // Si el evento comienza dentro de 1 a 65 minutos (alrededor de 1 hora antes)
+        if (diffMinutes >= 1 && diffMinutes <= 65) {
+          const cacheKey = `cima_notif_1h_${ev.id}_${user.id}`;
+          if (!localStorage.getItem(cacheKey)) {
+            localStorage.setItem(cacheKey, new Date().toISOString());
+
+            const title = `Recordatorio: ${ev.title} en 1 hora`;
+            const message = `Tu evento "${ev.title}" está programado para hoy a las ${ev.event_time || "hora establecida"} (en aprox. ${diffMinutes} min).`;
+
+            await createNotification({
+              recipientUserId: user.id,
+              recipientName: profile?.full_name,
+              recipientEmail: user.email,
+              type: "evento",
+              title,
+              message,
+              link: "/calendario",
+              metadata: { event_id: ev.id, reminder_1h: true }
+            });
+
+            toast({
+              title,
+              description: message
+            });
+
+            loadNotifications();
+          }
+        }
+      }
+    } catch (err) {
+      console.warn("Error verificando recordatorios de eventos:", err);
+    }
+  };
+
   useEffect(() => {
     loadNotifications();
-    const interval = setInterval(loadNotifications, 25000);
-    return () => clearInterval(interval);
+    checkEventReminders();
+    const notifInterval = setInterval(loadNotifications, 20000);
+    const reminderInterval = setInterval(checkEventReminders, 60000);
+    return () => {
+      clearInterval(notifInterval);
+      clearInterval(reminderInterval);
+    };
   }, [user?.id, user?.email, profile?.full_name]);
 
   // Click outside to close dropdown

@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/AuthContext";
 import { cap } from "@/lib/format";
 import { logActivity } from "@/lib/activityLogger";
 import { createNotification } from "@/lib/notificationService";
+import { isResourceInUserArea, filterMembersByArea } from "@/lib/areaPermissions";
 
 const TYPES = ["contrato", "demanda", "evidencia", "escrito", "otro"];
 const PENAL_TYPES = ["expediente", "carpeta_investigacion", "proceso_penal", "amparo", "reporte", "sentencia", "evidencia", "correspondencia", "otro"];
@@ -92,10 +93,9 @@ export default function Documentos() {
   const isPenalArea = userAreaName.toLowerCase() === "penal";
   const activeTypes = isPenalArea ? PENAL_TYPES : TYPES;
 
-  // Filter cases and documents by Area:
-  // If not admin, only show cases belonging to user's assigned area.
-  const visibleCases = cases.filter(c => isAdmin || !profile?.area_id || c.area_id === profile?.area_id);
-  const visibleDocs = docs.filter(d => !d.case_id || visibleCases.some(c => c.id === d.case_id));
+  // Filter cases and documents strictly by Area:
+  const visibleCases = cases.filter(c => isResourceInUserArea(c, profile, { cases, members }, permissions));
+  const visibleDocs = docs.filter(d => isResourceInUserArea(d, profile, { cases, members }, permissions));
 
   const filtered = visibleDocs.filter((d) => {
     // Case filter
@@ -328,10 +328,9 @@ export default function Documentos() {
   }
 
   const selectedCaseForDoc = cases.find(c => c.id === form.case_id);
-  const activeDocAreaId = selectedCaseForDoc?.area_id || (!isAdmin ? profile?.area_id : null);
-  const eligibleLawyersForDoc = activeDocAreaId
-    ? members.filter(m => m.area_id === activeDocAreaId || !m.area_id || ['Admin', 'Direccion General'].includes(m.role))
-    : members;
+  const eligibleLawyersForDoc = selectedCaseForDoc && isAdmin
+    ? filterMembersByArea(members, { area_id: selectedCaseForDoc.area_id }, { can_view_all_cases: false })
+    : filterMembersByArea(members, profile, permissions);
 
   return (
     <div>

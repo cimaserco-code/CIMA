@@ -5,6 +5,7 @@ import { Briefcase, CheckSquare, Calendar, Users, ArrowUpRight, Clock } from "lu
 import PageHeader from "@/components/legal/PageHeader";
 import StatCard from "@/components/legal/StatCard";
 import { useAuth } from "@/lib/AuthContext";
+import { isResourceInUserArea, filterMembersByArea } from "@/lib/areaPermissions";
 
 function parseLocalDate(dateStrOrObj) {
   if (!dateStrOrObj) return new Date();
@@ -56,12 +57,11 @@ export default function Dashboard() {
 
   if (loading) return <div className="text-[#F5F5F3]/30 text-sm">Cargando Inicio…</div>;
 
-  // Filter lists based on Area:
-  // If not admin, only show cases belonging to user's assigned area.
-  // And only show tasks/events associated with those visible cases (or with no case).
-  const visibleCases = cases.filter(c => isAdmin || c.area_id === profile?.area_id);
-  const visibleTasks = tasks.filter(t => !t.case_id || visibleCases.some(c => c.id === t.case_id));
-  const visibleEvents = events.filter(e => !e.case_id || visibleCases.some(c => c.id === e.case_id));
+  // Filter lists strictly based on Area:
+  const visibleCases = cases.filter(c => isResourceInUserArea(c, profile, { cases, members }, permissions));
+  const visibleTasks = tasks.filter(t => isResourceInUserArea(t, profile, { cases, members }, permissions));
+  const visibleEvents = events.filter(e => isResourceInUserArea(e, profile, { cases, members }, permissions));
+  const visibleMembers = filterMembersByArea(members, profile, permissions);
 
   const activeCasesCount = visibleCases.filter((c) => c.status === "activo" || c.status === "en_proceso").length;
   const pendingTasksCount = visibleTasks.filter((t) => t.status !== "completada").length;
@@ -118,7 +118,7 @@ export default function Dashboard() {
         <StatCard label="Próximos Eventos" value={upcomingEvents.length} icon={Calendar} />
         <StatCard label="Casos Activos" value={activeCasesCount} icon={Briefcase} />
         <StatCard label="Tareas y Términos Pendientes" value={pendingTasksCount} icon={CheckSquare} />
-        <StatCard label="Miembros" value={members.length} icon={Users} />
+        <StatCard label="Miembros" value={visibleMembers.length} icon={Users} />
       </div>
 
       {/* 1. Próximos Eventos */}

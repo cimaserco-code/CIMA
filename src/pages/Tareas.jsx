@@ -9,6 +9,8 @@ import { useAuth } from "@/lib/AuthContext";
 import { cap } from "@/lib/format";
 import { logActivity } from "@/lib/activityLogger";
 import { createNotification } from "@/lib/notificationService";
+import { toast } from "@/components/ui/use-toast";
+import { isResourceInUserArea, filterMembersByArea } from "@/lib/areaPermissions";
 
 const COLUMNS = [
   { key: "pendiente", label: "Por Hacer" },
@@ -54,11 +56,9 @@ export default function Tareas() {
 
   useEffect(() => { load(); }, []);
 
-  // Partition cases and tasks by Area:
-  // If not admin, only show cases belonging to user's assigned area.
-  // And only show tasks associated with those visible cases (or tasks with no case, or tasks assigned to that user).
-  const visibleCases = cases.filter(c => isAdmin || c.area_id === profile?.area_id);
-  const visibleTasks = tasks.filter(t => !t.case_id || visibleCases.some(c => c.id === t.case_id));
+  // Partition cases and tasks strictly by Area:
+  const visibleCases = cases.filter(c => isResourceInUserArea(c, profile, { cases, members }, permissions));
+  const visibleTasks = tasks.filter(t => isResourceInUserArea(t, profile, { cases, members }, permissions));
 
   const advance = async (task) => {
     const newStatus = NEXT_STATUS[task.status] || "pendiente";
@@ -129,14 +129,28 @@ export default function Tareas() {
 
       // Disparar notificación de asignación
       if (form.assigned_lawyer) {
+        const notifTitle = editingId ? "Tarea actualizada" : "Nueva tarea asignada";
+        const notifMsg = `Te han asignado la tarea "${form.title}" (Urgencia: ${form.urgency})`;
+
         createNotification({
           recipientName: form.assigned_lawyer,
           type: "tarea",
-          title: editingId ? "Tarea actualizada" : "Nueva tarea asignada",
-          message: `Te han asignado la tarea "${form.title}" (Urgencia: ${form.urgency})`,
+          title: notifTitle,
+          message: notifMsg,
           link: "/tareas",
           metadata: { task_title: form.title, urgency: form.urgency, due_date: form.due_date }
         });
+
+        // Popup inmediato si el usuario autenticado es el asignado
+        const userNameLower = (profile?.full_name || "").toLowerCase().trim();
+        const userEmailLower = (user?.email || "").toLowerCase().trim();
+        const lLower = form.assigned_lawyer.toLowerCase().trim();
+        if ((userNameLower && lLower.includes(userNameLower)) || (userEmailLower && lLower.includes(userEmailLower))) {
+          toast({
+            title: notifTitle,
+            description: notifMsg
+          });
+        }
       }
 
       setModalOpen(false); setForm(EMPTY); setEditingId(null); load();
@@ -180,10 +194,9 @@ export default function Tareas() {
   }
 
   const selectedCaseForTask = cases.find(c => c.id === form.case_id);
-  const activeTaskAreaId = selectedCaseForTask?.area_id || (!isAdmin ? profile?.area_id : null);
-  const eligibleLawyersForTask = activeTaskAreaId
-    ? members.filter(m => m.area_id === activeTaskAreaId || !m.area_id || ['Admin', 'Direccion General'].includes(m.role))
-    : members;
+  const eligibleLawyersForTask = selectedCaseForTask && isAdmin
+    ? filterMembersByArea(members, { area_id: selectedCaseForTask.area_id }, { can_view_all_cases: false })
+    : filterMembersByArea(members, profile, permissions);
 
   return (
     <div>

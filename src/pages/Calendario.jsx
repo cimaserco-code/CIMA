@@ -8,6 +8,8 @@ import { useAuth } from "@/lib/AuthContext";
 import { cap } from "@/lib/format";
 import { logActivity } from "@/lib/activityLogger";
 import { createNotification } from "@/lib/notificationService";
+import { toast } from "@/components/ui/use-toast";
+import { isResourceInUserArea, filterMembersByArea } from "@/lib/areaPermissions";
 
 const TYPES = ["audiencia", "vencimiento_termino", "reunion_interna", "cita_cliente", "diligencia", "recordatorio_general"];
 const typeColors = { 
@@ -154,9 +156,9 @@ export default function Calendario() {
 
   useEffect(() => { load(); }, []);
 
-  // Filter cases and events by Area:
-  const visibleCases = cases.filter(c => isAdmin || c.area_id === profile?.area_id);
-  const visibleEvents = events.filter(e => !e.case_id || visibleCases.some(c => c.id === e.case_id));
+  // Filter cases and events strictly by Area:
+  const visibleCases = cases.filter(c => isResourceInUserArea(c, profile, { cases, members }, permissions));
+  const visibleEvents = events.filter(e => isResourceInUserArea(e, profile, { cases, members }, permissions));
 
   const filtered = filterType === "all" ? visibleEvents : visibleEvents.filter((e) => e.event_type === filterType);
   const allSorted = [...filtered].sort(compareEvents);
@@ -167,10 +169,9 @@ export default function Calendario() {
 
   // Lawyer area filtering when assigning in modal:
   const selectedCaseForEvent = cases.find(c => c.id === form.case_id);
-  const activeEventAreaId = selectedCaseForEvent?.area_id || (!isAdmin ? profile?.area_id : null);
-  const eligibleLawyersForEvent = activeEventAreaId
-    ? members.filter(m => m.area_id === activeEventAreaId || !m.area_id || ['Admin', 'Direccion General'].includes(m.role))
-    : members;
+  const eligibleLawyersForEvent = selectedCaseForEvent && isAdmin
+    ? filterMembersByArea(members, { area_id: selectedCaseForEvent.area_id }, { can_view_all_cases: false })
+    : filterMembersByArea(members, profile, permissions);
 
   const openNew = () => { setEditingId(null); setForm(EMPTY); setModalOpen(true); };
   const openEdit = (e) => {
@@ -241,16 +242,31 @@ export default function Calendario() {
 
       // Disparar notificaciones a los abogados asignados
       const assigned = Array.isArray(form.assigned_lawyers) ? form.assigned_lawyers : [form.assigned_lawyers];
+      const userNameLower = (profile?.full_name || "").toLowerCase().trim();
+      const userEmailLower = (user?.email || "").toLowerCase().trim();
+
       for (const lawyerName of assigned) {
         if (lawyerName) {
+          const notifTitle = editingId ? "Evento actualizado" : "Nuevo evento agendado";
+          const notifMsg = `Te han asignado el evento "${form.title}" para el ${formatDate(form.event_date)}${form.event_time ? ` a las ${form.event_time}` : ""}`;
+          
           createNotification({
             recipientName: lawyerName,
             type: "evento",
-            title: editingId ? "Evento actualizado" : "Nuevo evento agendado",
-            message: `Te han asignado el evento "${form.title}" para el ${formatDate(form.event_date)}${form.event_time ? ` a las ${form.event_time}` : ""}`,
+            title: notifTitle,
+            message: notifMsg,
             link: "/calendario",
             metadata: { event_title: form.title, event_date: form.event_date }
           });
+
+          // Disparar popup inmediato si el usuario autenticado es uno de los asignados
+          const lLower = lawyerName.toLowerCase().trim();
+          if ((userNameLower && lLower.includes(userNameLower)) || (userEmailLower && lLower.includes(userEmailLower))) {
+            toast({
+              title: notifTitle,
+              description: notifMsg
+            });
+          }
         }
       }
 
