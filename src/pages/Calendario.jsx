@@ -169,6 +169,7 @@ export default function Calendario() {
 
   // Lawyer area filtering when assigning in modal:
   const selectedCaseForEvent = cases.find(c => c.id === form.case_id);
+  const activeEventAreaId = selectedCaseForEvent?.area_id || (!isAdmin ? profile?.area_id : null);
   const eligibleLawyersForEvent = selectedCaseForEvent && isAdmin
     ? filterMembersByArea(members, { area_id: selectedCaseForEvent.area_id }, { can_view_all_cases: false })
     : filterMembersByArea(members, profile, permissions);
