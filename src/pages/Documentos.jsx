@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
 import { Plus, FileText, Download, Upload, Pencil, Trash2, Search, Eye, ExternalLink, X, Folder, FolderOpen, List, ChevronDown, ChevronRight, Layers } from "lucide-react";
 import PageHeader from "@/components/legal/PageHeader";
@@ -69,6 +70,10 @@ export default function Documentos() {
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const [searchParams] = useSearchParams();
+  const paramCaseId = searchParams.get("caseId");
+  const paramUpload = searchParams.get("upload") === "true";
+
   const load = async () => {
     setLoading(true);
     try {
@@ -87,6 +92,17 @@ export default function Documentos() {
   };
 
   useEffect(() => { load(); }, []);
+
+  // Si se pasa un caseId por URL (ej. al crear un caso o desde el detalle de caso), enfocar su apartado
+  useEffect(() => {
+    if (paramCaseId) {
+      setFilterCase(paramCaseId);
+      setCollapsedSections((prev) => ({ ...prev, [paramCaseId]: false }));
+      if (paramUpload) {
+        openNew(paramCaseId);
+      }
+    }
+  }, [paramCaseId, paramUpload]);
 
   // Determine if the current user belongs to Penal Area
   const userAreaName = areas.find(a => a.id === profile?.area_id)?.name || "";
@@ -507,12 +523,15 @@ export default function Documentos() {
                   );
                 }
 
-                // Sort: cases with documents first, then alphabetically
+                // Sort: Prioritize paramCaseId, then order by newest cases first so newly created cases are right at the top
                 sectionsToRender.sort((a, b) => {
-                  const countA = (docsByCase[a.id] || []).length;
-                  const countB = (docsByCase[b.id] || []).length;
-                  if (countA > 0 && countB === 0) return -1;
-                  if (countA === 0 && countB > 0) return 1;
+                  if (paramCaseId) {
+                    if (a.id === paramCaseId) return -1;
+                    if (b.id === paramCaseId) return 1;
+                  }
+                  const dateA = new Date(a.created_at || 0).getTime();
+                  const dateB = new Date(b.created_at || 0).getTime();
+                  if (dateA !== dateB) return dateB - dateA;
                   return (a.title || "").localeCompare(b.title || "");
                 });
 
@@ -590,18 +609,21 @@ export default function Documentos() {
                               <span className={`text-xs px-2.5 py-1 rounded font-medium border ${
                                 caseDocs.length > 0 
                                   ? "bg-[#C9A227]/10 text-[#C9A227] border-[#C9A227]/30" 
-                                  : "bg-[#141414] text-[#F5F5F3]/30 border-[#1E1E1E]"
+                                  : "bg-amber-400/10 text-amber-300 border-amber-400/30"
                               }`}>
-                                {caseDocs.length} {caseDocs.length === 1 ? "documento" : "documentos"}
+                                {caseDocs.length > 0 
+                                  ? `${caseDocs.length} ${caseDocs.length === 1 ? "documento" : "documentos"}`
+                                  : "Apartado listo · 0 docs"}
                               </span>
 
                               {permissions?.can_create_documents && (
                                 <button
+                                  type="button"
                                   onClick={() => openNew(caseObj.id)}
-                                  className="text-xs text-[#080808] bg-[#C9A227] hover:bg-[#A8841D] px-3 py-1.5 flex items-center gap-1.5 font-medium rounded transition-colors"
-                                  title="Subir documento a este caso"
+                                  className="text-xs text-[#080808] bg-[#C9A227] hover:bg-[#A8841D] px-3.5 py-1.5 flex items-center gap-1.5 font-bold rounded transition-colors shadow-sm cursor-pointer"
+                                  title={`Subir documento al caso ${caseObj.title}`}
                                 >
-                                  <Plus size={13} />
+                                  <Plus size={14} />
                                   <span className="hidden sm:inline">Subir Documento</span>
                                 </button>
                               )}
@@ -703,17 +725,24 @@ export default function Documentos() {
                                   })}
                                 </div>
                               ) : (
-                                <div className="p-8 text-center bg-[#070707]">
-                                  <p className="text-xs text-[#F5F5F3]/30 mb-2.5">
-                                    Este expediente aún no cuenta con documentos subidos.
+                                <div className="p-8 text-center bg-[#070707] border-2 border-dashed border-[#1E1E1E] hover:border-[#C9A227]/40 rounded m-4 transition-colors">
+                                  <div className="w-12 h-12 rounded-full bg-[#121212] border border-[#222222] flex items-center justify-center mx-auto mb-3 text-[#C9A227]">
+                                    <Upload size={20} />
+                                  </div>
+                                  <h4 className="text-sm font-semibold text-[#F5F5F3] mb-1">
+                                    Apartado listo para: {caseObj.title}
+                                  </h4>
+                                  <p className="text-xs text-[#F5F5F3]/50 max-w-md mx-auto mb-4">
+                                    Este expediente cuenta con su propio apartado para organizar contratos, demandas, escritos o evidencias. Sube el primer archivo a continuación.
                                   </p>
                                   {permissions?.can_create_documents && (
                                     <button
+                                      type="button"
                                       onClick={() => openNew(caseObj.id)}
-                                      className="inline-flex items-center gap-1.5 text-xs text-[#C9A227] hover:text-[#080808] hover:bg-[#C9A227] px-3 py-1.5 border border-[#C9A227]/40 transition-colors rounded font-medium"
+                                      className="inline-flex items-center gap-2 text-xs bg-[#C9A227] hover:bg-[#A8841D] text-[#080808] font-bold px-4 py-2.5 rounded transition-all shadow-lg shadow-black/50 cursor-pointer"
                                     >
-                                      <Plus size={13} />
-                                      <span>Subir primer documento a este caso</span>
+                                      <Plus size={15} />
+                                      <span>Subir Documentos a este Caso</span>
                                     </button>
                                   )}
                                 </div>

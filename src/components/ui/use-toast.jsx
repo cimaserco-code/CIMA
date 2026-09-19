@@ -1,8 +1,9 @@
 // Inspired by react-hot-toast library
 import { useState, useEffect } from "react";
 
-const TOAST_LIMIT = 20;
-const TOAST_REMOVE_DELAY = 1000000;
+const TOAST_LIMIT = 5;
+const DEFAULT_TOAST_DURATION = 5000; // 5 segundos de tiempo de vida
+const TOAST_REMOVE_DELAY = 400; // Delay para animación de salida antes de remover
 
 const actionTypes = {
   ADD_TOAST: "ADD_TOAST",
@@ -19,6 +20,7 @@ function genId() {
 }
 
 const toastTimeouts = new Map();
+const autoDismissTimers = new Map();
 
 const addToRemoveQueue = (toastId) => {
   if (toastTimeouts.has(toastId)) {
@@ -110,7 +112,7 @@ function dispatch(action) {
   });
 }
 
-function toast({ ...props }) {
+function toast({ duration = DEFAULT_TOAST_DURATION, ...props }) {
   const id = genId();
 
   const update = (props) =>
@@ -119,8 +121,14 @@ function toast({ ...props }) {
       toast: { ...props, id },
     });
 
-  const dismiss = () =>
+  const dismiss = () => {
+    const timer = autoDismissTimers.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      autoDismissTimers.delete(id);
+    }
     dispatch({ type: actionTypes.DISMISS_TOAST, toastId: id });
+  };
 
   dispatch({
     type: actionTypes.ADD_TOAST,
@@ -133,6 +141,14 @@ function toast({ ...props }) {
       },
     },
   });
+
+  // Auto-dismiss tras 5 segundos (por defecto)
+  if (duration !== Infinity && duration > 0) {
+    const timer = setTimeout(() => {
+      dismiss();
+    }, duration);
+    autoDismissTimers.set(id, timer);
+  }
 
   return {
     id,
@@ -157,7 +173,19 @@ function useToast() {
   return {
     ...state,
     toast,
-    dismiss: (toastId) => dispatch({ type: actionTypes.DISMISS_TOAST, toastId }),
+    dismiss: (toastId) => {
+      if (toastId) {
+        const timer = autoDismissTimers.get(toastId);
+        if (timer) {
+          clearTimeout(timer);
+          autoDismissTimers.delete(toastId);
+        }
+      } else {
+        autoDismissTimers.forEach((t) => clearTimeout(t));
+        autoDismissTimers.clear();
+      }
+      dispatch({ type: actionTypes.DISMISS_TOAST, toastId });
+    },
   };
 }
 

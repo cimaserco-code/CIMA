@@ -194,7 +194,7 @@ export default function Casos() {
           });
         }
       } else { 
-        res = await supabase.from('cases').insert([payload]); 
+        res = await supabase.from('cases').insert([payload]).select(); 
         if (!res.error) {
           logActivity({
             userId: user?.id,
@@ -205,6 +205,24 @@ export default function Casos() {
             description: `Creó el nuevo caso "${form.title}" (${form.case_number})`,
             metadata: { case_number: form.case_number, client: form.client, practice_area: form.practice_area }
           });
+
+          // Notificar y ofrecer enlace directo al apartado del nuevo caso en Documentos
+          const createdCase = res.data && res.data[0] ? res.data[0] : null;
+          if (createdCase) {
+            toast({
+              title: "Apartado de Documentos creado",
+              description: `Se ha habilitado el apartado para "${form.title}" en Documentos.`,
+              action: (
+                <button
+                  type="button"
+                  onClick={() => navigate(`/documentos?caseId=${createdCase.id}&upload=true`)}
+                  className="text-[11px] bg-[#C9A227] text-[#080808] font-bold px-2 py-1 rounded hover:bg-[#A8841D] transition-colors"
+                >
+                  Subir Docs
+                </button>
+              )
+            });
+          }
         }
       }
       
@@ -523,27 +541,58 @@ export default function Casos() {
             {/* Tab: Documentos */}
             {detailTab === "documentos" && (
               <div className="space-y-3">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs text-[#F5F5F3]/40">Documentos vinculados a este caso:</p>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedCaseDetail(null);
-                      navigate("/documentos");
-                    }}
-                    className="text-xs text-[#C9A227] hover:underline flex items-center gap-1"
-                  >
-                    <span>Ir al módulo de Documentos</span>
-                    <ArrowUpRight size={12} />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {permissions?.can_create_documents && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const caseId = selectedCaseDetail.id;
+                          setSelectedCaseDetail(null);
+                          navigate(`/documentos?caseId=${caseId}&upload=true`);
+                        }}
+                        className="text-xs bg-[#C9A227] text-[#080808] font-bold px-2.5 py-1 rounded flex items-center gap-1 hover:bg-[#A8841D] transition-colors"
+                      >
+                        <Plus size={13} />
+                        <span>Subir Documento</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const caseId = selectedCaseDetail.id;
+                        setSelectedCaseDetail(null);
+                        navigate(`/documentos?caseId=${caseId}`);
+                      }}
+                      className="text-xs text-[#C9A227] hover:underline flex items-center gap-1"
+                    >
+                      <span>Ver Apartado en Documentos</span>
+                      <ArrowUpRight size={12} />
+                    </button>
+                  </div>
                 </div>
 
                 {detailLoading ? (
                   <p className="text-xs text-[#F5F5F3]/30 py-6 text-center">Cargando documentos…</p>
                 ) : caseDocs.length === 0 ? (
-                  <div className="p-8 text-center bg-[#0A0A0A] border border-[#161616]">
+                  <div className="p-8 text-center bg-[#0A0A0A] border border-[#161616] rounded">
                     <FileText size={28} className="text-[#F5F5F3]/10 mx-auto mb-2" />
-                    <p className="text-xs text-[#F5F5F3]/40">No hay documentos registrados en este caso aún.</p>
+                    <p className="text-xs text-[#F5F5F3]/40 mb-3">No hay documentos registrados en este caso aún.</p>
+                    {permissions?.can_create_documents && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const caseId = selectedCaseDetail.id;
+                          setSelectedCaseDetail(null);
+                          navigate(`/documentos?caseId=${caseId}&upload=true`);
+                        }}
+                        className="text-xs bg-[#C9A227] text-[#080808] font-bold px-3 py-1.5 rounded inline-flex items-center gap-1.5 hover:bg-[#A8841D] transition-colors"
+                      >
+                        <Plus size={13} />
+                        <span>Subir primer documento a este caso</span>
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="divide-y divide-[#161616] border border-[#1A1A1A] bg-[#0A0A0A] max-h-72 overflow-y-auto">
