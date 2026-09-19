@@ -328,6 +328,7 @@ export default function Documentos() {
   }
 
   const selectedCaseForDoc = cases.find(c => c.id === form.case_id);
+  const activeDocAreaId = selectedCaseForDoc?.area_id || (!isAdmin ? profile?.area_id : null);
   const eligibleLawyersForDoc = selectedCaseForDoc && isAdmin
     ? filterMembersByArea(members, { area_id: selectedCaseForDoc.area_id }, { can_view_all_cases: false })
     : filterMembersByArea(members, profile, permissions);
