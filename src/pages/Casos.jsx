@@ -640,7 +640,7 @@ export default function Casos() {
 
             {/* Tab: Información General */}
             {detailTab === "general" && (
-              <div className="space-y-3 bg-[#0A0A0A] border border-[#1A1A1A] p-4 text-xs">
+              <div className="space-y-4 bg-[#0A0A0A] border border-[#1A1A1A] p-4 text-xs">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-4 pb-3 border-b border-[#161616] items-start">
                   <div className="min-w-0">
                     <span className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider block">Área de Práctica</span>
@@ -653,6 +653,27 @@ export default function Casos() {
                   <div className="min-w-0">
                     <span className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider block">Abogado(s) Asignados</span>
                     <span className="text-[#F5F5F3] font-medium">{lawyers(selectedCaseDetail.assigned_lawyers)}</span>
+                  </div>
+                  <div className="min-w-0 sm:col-span-2">
+                    <span className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider block mb-1">Correos</span>
+                    <div className="space-y-1 break-words">
+                      {[
+                        dbClients.find(client => client.id === selectedCaseDetail.client_id)?.email,
+                        ...toArray(selectedCaseDetail.assigned_lawyers).map(lawyer => members.find(member =>
+                          member.full_name === lawyer || member.email === lawyer
+                        )?.email)
+                      ].filter(Boolean).map((email) => (
+                        <a key={email} href={`mailto:${email}`} className="block text-[#F5F5F3] font-medium hover:text-[#C9A227] transition-colors">
+                          {email}
+                        </a>
+                      ))}
+                      {!dbClients.find(client => client.id === selectedCaseDetail.client_id)?.email &&
+                        !toArray(selectedCaseDetail.assigned_lawyers).some(lawyer => members.some(member =>
+                          (member.full_name === lawyer || member.email === lawyer) && member.email
+                        )) && (
+                          <span className="text-[#F5F5F3]/50">Sin correos registrados</span>
+                        )}
+                    </div>
                   </div>
                   <div className="min-w-0">
                     <span className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider block">Próxima Audiencia</span>

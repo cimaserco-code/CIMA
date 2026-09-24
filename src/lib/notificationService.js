@@ -2,6 +2,8 @@ import { supabase } from "./supabaseClient";
 
 export const NOTIFICATION_TTL_MS = 5 * 60 * 1000;
 
+const getExpirationDate = () => new Date(Date.now() - NOTIFICATION_TTL_MS).toISOString();
+
 /**
  * Registra una notificación para un usuario o conjunto de usuarios.
  * Si la tabla `notifications` no existe aún en Supabase, guarda un respaldo en la tabla `messages`
@@ -104,7 +106,9 @@ export async function fetchUserNotifications({ userId, userEmail, userName }) {
 
   try {
     // 1. Intentar consultar desde la tabla 'notifications'
-    const expiresAfter = new Date(Date.now() - NOTIFICATION_TTL_MS).toISOString();
+    const expiresAfter = getExpirationDate();
+    await supabase.from("notifications").delete().lt("created_at", expiresAfter);
+    await supabase.from("messages").delete().lt("created_at", expiresAfter).filter("attachments->>is_notification", "eq", "true");
     let query = supabase.from("notifications").select("*").gte("created_at", expiresAfter);
     
     // Filtrar por ID de usuario si está disponible
@@ -211,11 +215,11 @@ export async function deleteNotification(notificationId, isFallback = false) {
 
   try {
     const result = isFallback
-      ? await supabase.from("messages").delete().eq("id", notificationId)
-      : await supabase.from("notifications").delete().eq("id", notificationId);
+      ? await supabase.from("messages").delete().eq("id", notificationId).select("id")
+      : await supabase.from("notifications").delete().eq("id", notificationId).select("id");
 
     if (result.error) throw result.error;
-    return true;
+    return Array.isArray(result.data) && result.data.some(row => row.id === notificationId);
   } catch (err) {
     console.warn("Error al eliminar notificación:", err);
     return false;
