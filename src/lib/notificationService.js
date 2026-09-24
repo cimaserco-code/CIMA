@@ -214,12 +214,19 @@ export async function deleteNotification(notificationId, isFallback = false) {
   if (!notificationId) return false;
 
   try {
-    const result = isFallback
-      ? await supabase.from("messages").delete().eq("id", notificationId).select("id")
-      : await supabase.from("notifications").delete().eq("id", notificationId).select("id");
+    const table = isFallback ? "messages" : "notifications";
 
-    if (result.error) throw result.error;
-    return Array.isArray(result.data) && result.data.some(row => row.id === notificationId);
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq("id", notificationId);
+
+    if (error) {
+      console.warn("Error al eliminar notificación:", error);
+      return false;
+    }
+
+    return true;
   } catch (err) {
     console.warn("Error al eliminar notificación:", err);
     return false;
