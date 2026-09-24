@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bell, Check, CheckCheck, Briefcase, CheckSquare, FileText, Calendar, ExternalLink, X } from "lucide-react";
+import { Bell, CheckCheck, Briefcase, CheckSquare, FileText, Calendar, Trash2 } from "lucide-react";
 import { useAuth } from "@/lib/AuthContext";
-import { fetchUserNotifications, markNotificationAsRead, markAllNotificationsAsRead, createNotification } from "@/lib/notificationService";
+import { fetchUserNotifications, markNotificationAsRead, markAllNotificationsAsRead, deleteNotification, createNotification } from "@/lib/notificationService";
 import { toast } from "@/components/ui/use-toast";
 import { supabase } from "@/lib/supabaseClient";
 
@@ -207,6 +207,14 @@ export default function NotificationCenter() {
     setLoading(false);
   };
 
+  const handleDeleteNotification = async (notif) => {
+    const deleted = await deleteNotification(notif.id, notif._is_fallback);
+    if (deleted) {
+      setNotifications(prev => prev.filter(n => n.id !== notif.id));
+      knownIdsRef.current?.delete(notif.id);
+    }
+  };
+
   return (
     <div className="relative" ref={containerRef}>
       {/* Bell Trigger Button */}
@@ -295,9 +303,23 @@ export default function NotificationCenter() {
                         >
                           {notif.title}
                         </p>
-                        <span className="text-[10px] text-[#F5F5F3]/30 flex-shrink-0">
-                          {formatRelativeTime(notif.created_at)}
-                        </span>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <span className="text-[10px] text-[#F5F5F3]/30">
+                            {formatRelativeTime(notif.created_at)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              handleDeleteNotification(notif);
+                            }}
+                            className="p-1 text-[#F5F5F3]/25 hover:text-red-400 transition-colors"
+                            title="Eliminar notificación"
+                            aria-label={`Eliminar notificación ${notif.title || ""}`}
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
                       </div>
                       <p className="text-[11px] text-[#F5F5F3]/50 line-clamp-2 leading-relaxed">
                         {notif.message}

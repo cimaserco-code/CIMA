@@ -641,22 +641,22 @@ export default function Casos() {
             {/* Tab: Información General */}
             {detailTab === "general" && (
               <div className="space-y-3 bg-[#0A0A0A] border border-[#1A1A1A] p-4 text-xs">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pb-3 border-b border-[#161616]">
-                  <div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-4 pb-3 border-b border-[#161616] items-start">
+                  <div className="min-w-0">
                     <span className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider block">Área de Práctica</span>
                     <span className="text-[#F5F5F3] font-medium">{selectedCaseDetail.practice_area || "—"}</span>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider block">Oficina / Área</span>
                     <span className="text-[#F5F5F3] font-medium">{areas.find(a => a.id === selectedCaseDetail.area_id)?.name || "Sin Área Asignada"}</span>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider block">Abogado(s) Asignados</span>
                     <span className="text-[#F5F5F3] font-medium">{lawyers(selectedCaseDetail.assigned_lawyers)}</span>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <span className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider block">Próxima Audiencia</span>
-                    <span className="text-[#F5F5F3] font-medium">
+                    <span className="text-[#F5F5F3] font-medium break-words">
                       {selectedCaseDetail.next_hearing ? new Date(selectedCaseDetail.next_hearing).toLocaleDateString("es") : "Sin audiencia agendada"}
                     </span>
                   </div>

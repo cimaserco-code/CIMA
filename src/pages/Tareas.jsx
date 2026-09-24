@@ -194,6 +194,9 @@ export default function Tareas() {
   }
 
   const selectedCaseForTask = cases.find(c => c.id === form.case_id);
+  const activeTaskAreaId = form.case_id
+    ? selectedCaseForTask?.area_id
+    : (!isAdmin ? profile?.area_id : null);
   const eligibleLawyersForTask = selectedCaseForTask && isAdmin
     ? filterMembersByArea(members, { area_id: selectedCaseForTask.area_id }, { can_view_all_cases: false })
     : filterMembersByArea(members, profile, permissions);
