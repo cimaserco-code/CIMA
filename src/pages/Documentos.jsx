@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, FileText, Download, Upload, Pencil, Trash2, Search, Eye, ExternalLink, X, Folder, FolderOpen, List, ChevronDown, ChevronRight, Layers } from "lucide-react";
+import { Plus, FileText, Download, Upload, Pencil, Trash2, Search, Eye, ExternalLink, X, Folder, FolderOpen, List, ChevronDown, ChevronRight, Layers, Users } from "lucide-react";
 import PageHeader from "@/components/legal/PageHeader";
 import Modal from "@/components/legal/Modal";
+import LawyerSelect from "@/components/legal/LawyerSelect";
 import { useAuth } from "@/lib/AuthContext";
 import { cap } from "@/lib/format";
 import { logActivity } from "@/lib/activityLogger";
 import { createNotification } from "@/lib/notificationService";
-import { isResourceInUserArea, filterMembersByArea } from "@/lib/areaPermissions";
+import { toast } from "@/components/ui/use-toast";
+import { isResourceInUserArea, filterMembersByArea, getMemberAreaCategory, getAreaCategory, BLP_AREA_ID } from "@/lib/areaPermissions";
 
 const TYPES = ["contrato", "demanda", "evidencia", "escrito", "otro"];
 const PENAL_TYPES = ["expediente", "carpeta_investigacion", "proceso_penal", "amparo", "reporte", "sentencia", "evidencia", "correspondencia", "otro"];
@@ -34,7 +36,19 @@ const docTypeLabels = {
 const STATUSES = ["borrador", "editado", "finalizado"];
 const statusColors = { borrador: "text-[#F5F5F3]/40 bg-[#F5F5F3]/5", editado: "text-yellow-400 bg-yellow-400/10", finalizado: "text-green-400 bg-green-400/10" };
 
-const EMPTY = { title: "", doc_type: "contrato", amparo_type: "directo", case_id: "", lawyer: "", status: "borrador", file_url: "", file_name: "" };
+const EMPTY = { 
+  title: "", 
+  doc_type: "contrato", 
+  amparo_type: "directo", 
+  association_type: "caso", 
+  case_id: "", 
+  client_id: "", 
+  assigned_lawyers: [], 
+  lawyer: "", 
+  status: "borrador", 
+  file_url: "", 
+  file_name: "" 
+};
 
 function getFileType(doc) {
   if (!doc) return "unknown";
@@ -54,6 +68,7 @@ export default function Documentos() {
 
   const [docs, setDocs] = useState([]);
   const [cases, setCases] = useState([]);
+  const [clients, setClients] = useState([]);
   const [members, setMembers] = useState([]);
   const [areas, setAreas] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -77,16 +92,18 @@ export default function Documentos() {
   const load = async () => {
     setLoading(true);
     try {
-      const [dRes, cRes, mRes, aRes] = await Promise.all([
+      const [dRes, cRes, mRes, aRes, clRes] = await Promise.all([
         supabase.from('documents').select('*').order('created_at', { ascending: false }),
         supabase.from('cases').select('*'),
         supabase.from('team_members').select('*'),
-        supabase.from('areas').select('*')
+        supabase.from('areas').select('*'),
+        supabase.from('clients').select('*').order('full_name')
       ]);
       if (dRes.data) setDocs(dRes.data);
       if (cRes.data) setCases(cRes.data);
       if (mRes.data) setMembers(mRes.data);
       if (aRes.data) setAreas(aRes.data);
+      if (clRes.data) setClients(clRes.data);
     } catch (e) { console.error(e); }
     finally { setLoading(false); }
   };
@@ -104,14 +121,17 @@ export default function Documentos() {
     }
   }, [paramCaseId, paramUpload]);
 
-  // Determine if the current user belongs to Penal Area
+  // Determine if the current user belongs to Penal Area or BLP Area
   const userAreaName = areas.find(a => a.id === profile?.area_id)?.name || "";
   const isPenalArea = userAreaName.toLowerCase() === "penal";
+  const userCat = getMemberAreaCategory(profile) || getAreaCategory(profile?.area_id);
+  const isBLPArea = userCat === "blp" || isAdmin;
   const activeTypes = isPenalArea ? PENAL_TYPES : TYPES;
 
-  // Filter cases and documents strictly by Area:
+  // Filter cases, clients and documents strictly by Area:
   const visibleCases = cases.filter(c => isResourceInUserArea(c, profile, { cases, members }, permissions));
   const visibleDocs = docs.filter(d => isResourceInUserArea(d, profile, { cases, members }, permissions));
+  const visibleClients = clients.filter(c => isResourceInUserArea(c, profile, { cases, members }, permissions));
 
   const filtered = visibleDocs.filter((d) => {
     // Case filter
@@ -187,11 +207,32 @@ export default function Documentos() {
     }
   };
 
+  const getEligibleLawyersForCase = (targetCaseId, associationType = "caso", clientId = "") => {
+    const selectedCase = cases.find(c => c.id === targetCaseId);
+    if (selectedCase && isAdmin) {
+      return filterMembersByArea(members, { area_id: selectedCase.area_id }, { can_view_all_cases: false });
+    }
+    if (associationType === "cliente" && clientId) {
+      const clientObj = clients.find(c => c.id === clientId);
+      const targetAreaId = clientObj?.area_id || BLP_AREA_ID;
+      return filterMembersByArea(members, { area_id: targetAreaId }, permissions);
+    }
+    return filterMembersByArea(members, profile, permissions);
+  };
+
   const openNew = (defaultCaseId = "") => { 
     setEditingId(null); 
+    const cId = typeof defaultCaseId === "string" ? defaultCaseId : "";
+    const eligible = getEligibleLawyersForCase(cId, "caso");
+    const allLawyerNames = eligible.map(m => m.full_name).filter(Boolean);
+
     setForm({ 
       ...EMPTY, 
-      case_id: typeof defaultCaseId === "string" ? defaultCaseId : "",
+      case_id: cId,
+      association_type: "caso",
+      client_id: "",
+      assigned_lawyers: allLawyerNames,
+      lawyer: allLawyerNames.join(", "),
       doc_type: isPenalArea ? "expediente" : "contrato" 
     }); 
     setModalOpen(true); 
@@ -211,11 +252,21 @@ export default function Documentos() {
       amparoType = "indirecto";
     }
 
+    const assigned = d.lawyer 
+      ? d.lawyer.split(",").map(s => s.trim()).filter(Boolean)
+      : [];
+
+    const caseObj = cases.find(c => c.id === d.case_id);
+    const clientId = caseObj?.client_id || "";
+
     setForm({ 
       title: d.title || "", 
       doc_type: docType, 
       amparo_type: amparoType,
+      association_type: "caso",
       case_id: d.case_id || "", 
+      client_id: clientId,
+      assigned_lawyers: assigned,
       lawyer: d.lawyer || "",
       status: d.status || "borrador",
       file_url: d.file_url || "",
@@ -233,11 +284,48 @@ export default function Documentos() {
         finalDocType = form.amparo_type === "directo" ? "amparo_directo" : "amparo_indirecto";
       }
 
+      let targetCaseId = form.case_id || null;
+
+      // Si seleccionó vincular por Cliente en BLP y no tiene case_id asignado directamente:
+      if (form.association_type === "cliente" && form.client_id) {
+        const clientObj = clients.find(c => c.id === form.client_id);
+        if (clientObj) {
+          if (!targetCaseId) {
+            // Buscar si ya existe un caso para este cliente
+            const clientCase = cases.find(c => c.client_id === clientObj.id || (c.client && c.client.toLowerCase() === clientObj.full_name.toLowerCase()));
+            if (clientCase) {
+              targetCaseId = clientCase.id;
+            } else {
+              // Si el cliente no tiene caso aún, crear un expediente general automáticamente
+              const newCaseNumber = `CMA-${new Date().toISOString().slice(0,10).replace(/-/g, '')}-${Math.floor(100 + Math.random() * 900)}`;
+              const { data: newCase, error: newCaseErr } = await supabase.from('cases').insert([{
+                case_number: newCaseNumber,
+                title: `Expediente - ${clientObj.full_name}`,
+                client: clientObj.full_name,
+                client_id: clientObj.id,
+                area_id: clientObj.area_id || BLP_AREA_ID,
+                practice_area: "Corporativo",
+                status: "activo",
+                assigned_lawyers: form.assigned_lawyers || []
+              }]).select().single();
+
+              if (!newCaseErr && newCase) {
+                targetCaseId = newCase.id;
+              }
+            }
+          }
+        }
+      }
+
+      const lawyerString = Array.isArray(form.assigned_lawyers) && form.assigned_lawyers.length > 0
+        ? form.assigned_lawyers.join(", ")
+        : (form.lawyer || "");
+
       const payload = {
         title: form.title,
         doc_type: finalDocType,
-        case_id: form.case_id || null,
-        lawyer: form.lawyer,
+        case_id: targetCaseId,
+        lawyer: lawyerString,
         status: form.status,
         file_url: form.file_url,
         file_name: form.file_name,
@@ -276,16 +364,37 @@ export default function Documentos() {
       }
       if (res.error) throw res.error;
 
-      // Disparar notificación al abogado asignado
-      if (form.lawyer) {
-        createNotification({
-          recipientName: form.lawyer,
-          type: "documento",
-          title: editingId ? "Documento actualizado" : "Nuevo documento asignado",
-          message: `Te han asignado el documento "${form.title}" (${docTypeLabels[finalDocType] || finalDocType})`,
-          link: "/documentos",
-          metadata: { doc_title: form.title, file_name: form.file_name }
-        });
+      // Disparar notificación a todos los abogados asignados
+      const assignedList = Array.isArray(form.assigned_lawyers) && form.assigned_lawyers.length > 0
+        ? form.assigned_lawyers
+        : (lawyerString ? lawyerString.split(",").map(s => s.trim()) : []);
+
+      const userNameLower = (profile?.full_name || "").toLowerCase().trim();
+      const userEmailLower = (user?.email || "").toLowerCase().trim();
+
+      for (const lawyerName of assignedList) {
+        if (lawyerName) {
+          const notifTitle = editingId ? "Documento actualizado" : "Nuevo documento asignado";
+          const notifMsg = `Te han asignado el documento "${form.title}" (${docTypeLabels[finalDocType] || finalDocType})`;
+          
+          createNotification({
+            recipientName: lawyerName,
+            type: "documento",
+            title: notifTitle,
+            message: notifMsg,
+            link: "/documentos",
+            metadata: { doc_title: form.title, file_name: form.file_name }
+          });
+
+          // Disparar popup inmediato si el usuario autenticado es uno de los asignados
+          const lLower = lawyerName.toLowerCase().trim();
+          if ((userNameLower && lLower.includes(userNameLower)) || (userEmailLower && lLower.includes(userEmailLower))) {
+            toast({
+              title: notifTitle,
+              description: notifMsg
+            });
+          }
+        }
       }
 
       setModalOpen(false); setForm(EMPTY); setEditingId(null); load();
@@ -344,10 +453,10 @@ export default function Documentos() {
   }
 
   const selectedCaseForDoc = cases.find(c => c.id === form.case_id);
-  const activeDocAreaId = selectedCaseForDoc?.area_id || (!isAdmin ? profile?.area_id : null);
-  const eligibleLawyersForDoc = selectedCaseForDoc && isAdmin
-    ? filterMembersByArea(members, { area_id: selectedCaseForDoc.area_id }, { can_view_all_cases: false })
-    : filterMembersByArea(members, profile, permissions);
+  const activeDocAreaId = selectedCaseForDoc?.area_id || (form.association_type === "cliente" ? BLP_AREA_ID : (!isAdmin ? profile?.area_id : null));
+  const eligibleLawyersForDoc = React.useMemo(() => {
+    return getEligibleLawyersForCase(form.case_id, form.association_type, form.client_id);
+  }, [form.case_id, form.association_type, form.client_id, cases, clients, members, profile, permissions, isAdmin]);
 
   return (
     <div>
@@ -1018,21 +1127,141 @@ export default function Documentos() {
             </div>
           )}
 
+          {/* Association Selector for BLP: Caso vs Cliente */}
+          {isBLPArea && (
+            <div>
+              <label className={labelCls}>Vincular documento a</label>
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, association_type: "caso" })}
+                  className={`py-2 px-3 text-xs font-medium border text-center transition-colors cursor-pointer ${
+                    form.association_type === "caso"
+                      ? "bg-[#C9A227] text-[#080808] border-[#C9A227] font-semibold"
+                      : "bg-[#0F0F0F] text-[#F5F5F3]/60 border-[#1A1A1A] hover:text-[#F5F5F3]"
+                  }`}
+                >
+                  Por Caso / Asunto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, association_type: "cliente" })}
+                  className={`py-2 px-3 text-xs font-medium border text-center transition-colors cursor-pointer ${
+                    form.association_type === "cliente"
+                      ? "bg-[#C9A227] text-[#080808] border-[#C9A227] font-semibold"
+                      : "bg-[#0F0F0F] text-[#F5F5F3]/60 border-[#1A1A1A] hover:text-[#F5F5F3]"
+                  }`}
+                >
+                  Por Cliente Directo
+                </button>
+              </div>
+            </div>
+          )}
+
+          {form.association_type === "cliente" ? (
+            <div className="space-y-3">
+              <div>
+                <label className={labelCls}>Cliente</label>
+                <select
+                  className={inputCls}
+                  value={form.client_id}
+                  onChange={(e) => {
+                    const cId = e.target.value;
+                    const cObj = clients.find(c => c.id === cId);
+                    const clientCases = cases.filter(c => c.client_id === cId || (cObj && c.client === cObj.full_name));
+                    const eligible = getEligibleLawyersForCase(clientCases.length > 0 ? clientCases[0].id : "", "cliente", cId);
+                    setForm({
+                      ...form,
+                      client_id: cId,
+                      case_id: clientCases.length > 0 ? clientCases[0].id : "",
+                      assigned_lawyers: form.assigned_lawyers.length === 0 ? eligible.map(m => m.full_name) : form.assigned_lawyers
+                    });
+                  }}
+                >
+                  <option value="">Seleccionar cliente...</option>
+                  {visibleClients.map((c) => (
+                    <option key={c.id} value={c.id}>{c.full_name}</option>
+                  ))}
+                </select>
+              </div>
+
+              {form.client_id && (() => {
+                const cObj = clients.find(c => c.id === form.client_id);
+                const clientCases = cases.filter(c => c.client_id === form.client_id || (cObj && c.client === cObj.full_name));
+                if (clientCases.length > 1) {
+                  return (
+                    <div>
+                      <label className={labelCls}>Asunto / Caso específico del cliente</label>
+                      <select
+                        className={inputCls}
+                        value={form.case_id}
+                        onChange={(e) => setForm({ ...form, case_id: e.target.value })}
+                      >
+                        {clientCases.map((c) => (
+                          <option key={c.id} value={c.id}>{c.title} ({c.case_number})</option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                }
+                return null;
+              })()}
+            </div>
+          ) : (
+            <div>
+              <label className={labelCls}>Caso Vinculado</label>
+              <select 
+                className={inputCls} 
+                value={form.case_id} 
+                onChange={(e) => {
+                  const newCaseId = e.target.value;
+                  const eligible = getEligibleLawyersForCase(newCaseId, "caso");
+                  setForm({ 
+                    ...form, 
+                    case_id: newCaseId,
+                    assigned_lawyers: form.assigned_lawyers.length === 0 ? eligible.map(m => m.full_name) : form.assigned_lawyers
+                  });
+                }}
+              >
+                <option value="">Sin vincular a caso</option>
+                {visibleCases.map((c) => <option key={c.id} value={c.id}>{c.title} ({c.case_number})</option>)}
+              </select>
+            </div>
+          )}
+
           <div>
-            <label className={labelCls}>Caso Vinculado</label>
-            <select className={inputCls} value={form.case_id} onChange={(e) => setForm({ ...form, case_id: e.target.value })}>
-              <option value="">Sin vincular a caso</option>
-              {visibleCases.map((c) => <option key={c.id} value={c.id}>{c.title} ({c.case_number})</option>)}
-            </select>
-          </div>
-          <div>
-            <label className={labelCls}>
-              Abogado {activeDocAreaId && <span className="text-[#C9A227] font-normal normal-case">({areas.find(a => a.id === activeDocAreaId)?.name})</span>}
-            </label>
-            <select className={inputCls} value={form.lawyer} onChange={(e) => setForm({ ...form, lawyer: e.target.value })}>
-              <option value="">Seleccionar abogado...</option>
-              {eligibleLawyersForDoc.map((m) => <option key={m.id} value={m.full_name}>{m.full_name}</option>)}
-            </select>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className={labelCls + " mb-0"}>
+                Abogados Asignados {activeDocAreaId && <span className="text-[#C9A227] font-normal normal-case">({areas.find(a => a.id === activeDocAreaId)?.name})</span>}
+              </label>
+              <div className="flex items-center gap-2 text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, assigned_lawyers: eligibleLawyersForDoc.map(m => m.full_name) })}
+                  className="text-[#C9A227] hover:underline cursor-pointer"
+                >
+                  Seleccionar todos
+                </button>
+                <span className="text-[#F5F5F3]/20">|</span>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, assigned_lawyers: [] })}
+                  className="text-[#F5F5F3]/40 hover:text-[#F5F5F3] hover:underline cursor-pointer"
+                >
+                  Deseleccionar todos
+                </button>
+              </div>
+            </div>
+            <LawyerSelect
+              members={eligibleLawyersForDoc}
+              selected={form.assigned_lawyers || []}
+              onChange={(val) => setForm({ ...form, assigned_lawyers: val })}
+            />
+            <p className="text-[10px] text-[#F5F5F3]/40 mt-1">
+              {form.assigned_lawyers?.length === eligibleLawyersForDoc.length && eligibleLawyersForDoc.length > 0
+                ? "✓ Asignado a todos por defecto (deselecciona los que no participen)"
+                : `${form.assigned_lawyers?.length || 0} de ${eligibleLawyersForDoc.length} abogados seleccionados`}
+            </p>
           </div>
           <div>
             <label className={labelCls}>Archivo</label>

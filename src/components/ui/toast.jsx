@@ -3,19 +3,22 @@ import { cva } from "class-variance-authority";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const ToastProvider = React.forwardRef(({ ...props }, ref) => (
+const ToastProvider = React.forwardRef(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className="fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]"
+    className={cn(
+      "fixed bottom-0 right-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px] pointer-events-none gap-2",
+      className
+    )}
     {...props}
   />
 ));
 ToastProvider.displayName = "ToastProvider";
 
-const ToastViewport = React.forwardRef(({ ...props }, ref) => (
+const ToastViewport = React.forwardRef(({ className, ...props }, ref) => (
   <div
     ref={ref}
-    className="fixed top-0 z-[100] flex max-h-screen w-full flex-col-reverse p-4 sm:bottom-0 sm:right-0 sm:top-auto sm:flex-col md:max-w-[420px]"
+    className={cn("pointer-events-none", className)}
     {...props}
   />
 ));
@@ -44,8 +47,8 @@ const Toast = React.forwardRef(({ className, variant, open, ...props }, ref) => 
       className={cn(
         toastVariants({ variant }),
         open === false
-          ? "opacity-0 scale-95 pointer-events-none -translate-y-2"
-          : "opacity-100 scale-100 translate-y-0",
+          ? "opacity-0 scale-95 pointer-events-none -translate-y-2 max-h-0 py-0 my-0 border-transparent overflow-hidden"
+          : "opacity-100 scale-100 translate-y-0 pointer-events-auto",
         className
       )}
       {...props}
@@ -72,7 +75,7 @@ const ToastClose = React.forwardRef(({ className, onClick, ...props }, ref) => (
     type="button"
     onClick={onClick}
     className={cn(
-      "absolute right-2 top-2 rounded p-1 text-[#F5F5F3]/50 opacity-80 transition-all hover:opacity-100 hover:text-[#C9A227] hover:bg-[#1A1A1A] focus:opacity-100 focus:outline-none cursor-pointer",
+      "absolute right-2 top-2 z-30 pointer-events-auto rounded p-1 text-[#F5F5F3]/50 opacity-80 transition-all hover:opacity-100 hover:text-[#C9A227] hover:bg-[#1A1A1A] focus:opacity-100 focus:outline-none cursor-pointer",
       className
     )}
     toast-close=""

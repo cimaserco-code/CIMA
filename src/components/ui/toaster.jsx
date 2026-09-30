@@ -5,7 +5,6 @@ import {
   ToastProvider,
   ToastDescription,
   ToastTitle,
-  ToastViewport,
 } from "@/components/ui/toast";
 
 export function Toaster() {
@@ -24,12 +23,16 @@ export function Toaster() {
             </div>
 
             {action}
-            <ToastClose onClick={() => dismiss(id)} />
+            <ToastClose
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                dismiss(id);
+              }}
+            />
           </Toast>
         );
       })}
-
-      <ToastViewport />
     </ToastProvider>
   );
 }

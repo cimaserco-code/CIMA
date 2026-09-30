@@ -119,8 +119,25 @@ export function isResourceInUserArea(resource, userProfile, { cases = [], member
     return true;
   }
 
+  // 0. Check explicit area property or description area tag (e.g. for calendar events or multi-area resources)
+  const desc = typeof resource.description === "string" ? resource.description : "";
+  const areaTagMatch = desc.match(/<!--\s*area:(penal|legal|bpl|blp|ambas|todas)\s*-->/i) ||
+                       desc.match(/\[Área:\s*(penal|legal|bpl|blp|ambas|todas)\]/i);
+  const explicitArea = resource.area || (areaTagMatch ? areaTagMatch[1].toLowerCase() : null);
+
+  if (explicitArea) {
+    if (explicitArea === "ambas" || explicitArea === "todas" || explicitArea === "all" || explicitArea === "global") {
+      return true;
+    }
+    const cat = getAreaCategory(explicitArea);
+    if (cat) return cat === userCat;
+  }
+
   // 1. If resource has explicit area_id
   if (resource.area_id) {
+    if (resource.area_id === "ambas" || resource.area_id === "todas" || resource.area_id === "all") {
+      return true;
+    }
     const resCat = getAreaCategory(resource.area_id);
     if (resCat) return resCat === userCat;
   }

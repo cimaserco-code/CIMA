@@ -9,7 +9,34 @@ import { cap } from "@/lib/format";
 import { logActivity } from "@/lib/activityLogger";
 import { createNotification } from "@/lib/notificationService";
 import { toast } from "@/components/ui/use-toast";
-import { isResourceInUserArea, filterMembersByArea, getAreaCategory } from "@/lib/areaPermissions";
+import { isResourceInUserArea, filterMembersByArea, getAreaCategory, PENAL_AREA_ID, BLP_AREA_ID, isUserGlobalAdmin } from "@/lib/areaPermissions";
+
+export function getEventAreaTag(description) {
+  if (!description || typeof description !== "string") return null;
+  const match = description.match(/<!--\s*area:(penal|legal|bpl|blp|ambas|todas)\s*-->/i) ||
+                description.match(/\[Área:\s*(penal|legal|bpl|blp|ambas|todas)\]/i);
+  if (match) {
+    const val = match[1].toLowerCase();
+    if (val === "legal" || val === "penal") return "penal";
+    if (val === "bpl" || val === "blp") return "blp";
+    if (val === "ambas" || val === "todas") return "ambas";
+  }
+  return null;
+}
+
+export function cleanDescription(description) {
+  if (!description || typeof description !== "string") return "";
+  return description
+    .replace(/<!--\s*area:[^>]+-->\s*/gi, "")
+    .replace(/\[Área:\s*(penal|legal|bpl|blp|ambas|todas)\]\s*/gi, "")
+    .trim();
+}
+
+export function injectAreaTag(description, area) {
+  const clean = cleanDescription(description);
+  if (!area) return clean;
+  return `<!-- area:${area} -->\n${clean}`.trim();
+}
 
 const TYPES = ["audiencia", "vencimiento_termino", "reunion_interna", "cita_cliente", "diligencia", "recordatorio_general"];
 const typeColors = { 
@@ -118,14 +145,15 @@ const lawyers = (v) => Array.isArray(v) ? (v.length ? v.join(", ") : "—") : (v
 const areaStyles = {
   penal: "border-rose-400/30 bg-rose-400/10 text-rose-300",
   blp: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300",
+  ambas: "border-purple-400/30 bg-purple-400/10 text-purple-300",
   unknown: "border-[#F5F5F3]/15 bg-[#F5F5F3]/5 text-[#F5F5F3]/40"
 };
 
-const EMPTY = { title: "", event_type: "audiencia", event_date: "", event_time: "", case_id: "", assigned_lawyers: [], description: "" };
+const EMPTY = { title: "", event_type: "audiencia", event_date: "", event_time: "", case_id: "", assigned_lawyers: [], description: "", area: "legal" };
 
 export default function Calendario() {
   const { user, profile, permissions } = useAuth();
-  const isAdmin = !!permissions?.can_view_all_cases;
+  const isAdmin = isUserGlobalAdmin(profile, permissions);
   const role = (profile?.role || "").trim().toLowerCase();
   const showAreaLabels = role === "admin" || role === "direccion general";
 
@@ -167,13 +195,15 @@ export default function Calendario() {
   const visibleCases = cases.filter(c => isResourceInUserArea(c, profile, { cases, members }, permissions));
   const visibleEvents = events.filter(e => isResourceInUserArea(e, profile, { cases, members }, permissions));
   const getEventArea = (event) => {
+    const tagged = getEventAreaTag(event.description);
+    if (tagged) return tagged;
     const areaId = event.area_id || cases.find(c => c.id === event.case_id)?.area_id;
     return getAreaCategory(areaId);
   };
   const renderAreaBadge = (event, compact = false) => {
     if (!showAreaLabels) return null;
     const area = getEventArea(event);
-    const label = area === "penal" ? "PENAL" : area === "blp" ? "BLP" : "SIN ÁREA";
+    const label = area === "penal" ? "LEGAL" : area === "blp" ? "BLP" : area === "ambas" ? "AMBAS" : "SIN ÁREA";
     return (
       <span className={`inline-flex items-center border font-medium tracking-wider uppercase ${areaStyles[area || "unknown"]} ${compact ? "px-1 py-0.5 text-[7px]" : "px-2 py-1 text-[9px]"}`}>
         {label}
@@ -191,13 +221,36 @@ export default function Calendario() {
   // Lawyer area filtering when assigning in modal:
   const selectedCaseForEvent = cases.find(c => c.id === form.case_id);
   const activeEventAreaId = selectedCaseForEvent?.area_id || (!isAdmin ? profile?.area_id : null);
-  const eligibleLawyersForEvent = selectedCaseForEvent && isAdmin
-    ? filterMembersByArea(members, { area_id: selectedCaseForEvent.area_id }, { can_view_all_cases: false })
-    : filterMembersByArea(members, profile, permissions);
+  const eligibleLawyersForEvent = React.useMemo(() => {
+    if (!isAdmin) {
+      return filterMembersByArea(members, profile, permissions);
+    }
+    if (form.area === "ambas") {
+      return members;
+    }
+    if (form.area === "blp") {
+      return filterMembersByArea(members, { area_id: BLP_AREA_ID }, { can_view_all_cases: false });
+    }
+    if (form.area === "penal" || form.area === "legal") {
+      return filterMembersByArea(members, { area_id: PENAL_AREA_ID }, { can_view_all_cases: false });
+    }
+    if (selectedCaseForEvent) {
+      return filterMembersByArea(members, { area_id: selectedCaseForEvent.area_id }, { can_view_all_cases: false });
+    }
+    return members;
+  }, [members, isAdmin, form.area, selectedCaseForEvent, profile, permissions]);
 
-  const openNew = () => { setEditingId(null); setForm(EMPTY); setModalOpen(true); };
+  const openNew = () => { 
+    setEditingId(null); 
+    const defaultArea = profile?.area_id ? getAreaCategory(profile.area_id) || "legal" : "legal";
+    setForm({ ...EMPTY, area: defaultArea }); 
+    setModalOpen(true); 
+  };
   const openEdit = (e) => {
     setEditingId(e.id);
+    const taggedArea = getEventAreaTag(e.description);
+    const caseArea = e.case_id ? getAreaCategory(cases.find(c => c.id === e.case_id)?.area_id) : null;
+    const currentArea = taggedArea || caseArea || (profile?.area_id ? getAreaCategory(profile.area_id) || "legal" : "legal");
     setForm({ 
       title: e.title || "", 
       event_type: e.event_type || "audiencia", 
@@ -205,7 +258,8 @@ export default function Calendario() {
       event_time: e.event_time || "", 
       case_id: e.case_id || "", 
       assigned_lawyers: toArray(e.assigned_lawyers), 
-      description: e.description || "" 
+      description: cleanDescription(e.description),
+      area: currentArea
     });
     setModalOpen(true);
   };
@@ -222,6 +276,7 @@ export default function Calendario() {
 
     setSaving(true);
     try {
+      const finalDesc = injectAreaTag(form.description, form.area);
       const payload = {
         title: form.title,
         event_type: form.event_type,
@@ -229,7 +284,7 @@ export default function Calendario() {
         event_time: form.event_time || null,
         case_id: form.case_id || null,
         assigned_lawyers: form.assigned_lawyers,
-        description: form.description
+        description: finalDesc
       };
 
       let res;
@@ -380,8 +435,9 @@ export default function Calendario() {
       {showAreaLabels && (
         <div className="flex items-center gap-4 mb-5 text-[9px] tracking-wider uppercase" aria-label="Leyenda de áreas">
           <span className="text-[#F5F5F3]/35">Área del evento:</span>
-          <span className="inline-flex items-center gap-1.5 text-rose-300"><span className="w-2 h-2 bg-rose-400" />Penal</span>
+          <span className="inline-flex items-center gap-1.5 text-rose-300"><span className="w-2 h-2 bg-rose-400" />Legal / Penal</span>
           <span className="inline-flex items-center gap-1.5 text-cyan-300"><span className="w-2 h-2 bg-cyan-400" />BLP</span>
+          <span className="inline-flex items-center gap-1.5 text-purple-300"><span className="w-2 h-2 bg-purple-400" />Ambas</span>
         </div>
       )}
 
@@ -528,7 +584,7 @@ export default function Calendario() {
                 <FileText size={16} className="text-[#C9A227] flex-shrink-0 mt-0.5" />
                 <div className="min-w-0 flex-1">
                   <p className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider mb-1">Descripción / Notas</p>
-                  <p className="text-[#F5F5F3]/80 text-xs whitespace-pre-line leading-relaxed">{viewingEvent.description}</p>
+                  <p className="text-[#F5F5F3]/80 text-xs whitespace-pre-line leading-relaxed">{cleanDescription(viewingEvent.description)}</p>
                 </div>
               </div>
             )}
@@ -564,6 +620,20 @@ export default function Calendario() {
       {/* Create / Edit Event Modal */}
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editingId ? "Editar Evento" : "Nuevo Evento"}>
         <div className="space-y-4">
+          {(isAdmin || showAreaLabels) && (
+            <div>
+              <label className={labelCls}>Área del Evento (Admin)</label>
+              <select
+                className={inputCls}
+                value={form.area || "legal"}
+                onChange={(e) => setForm({ ...form, area: e.target.value })}
+              >
+                <option value="legal">Área Penal / Legal</option>
+                <option value="blp">Área Blindaje Legal Preventivo (BLP)</option>
+                <option value="ambas">Ambas Áreas (Legal y BLP - Visible para todos)</option>
+              </select>
+            </div>
+          )}
           <div><label className={labelCls}>Título</label><input className={inputCls} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Nombre del evento" /></div>
           <div className="grid grid-cols-2 gap-3">
             <div><label className={labelCls}>Tipo</label><select className={inputCls} value={form.event_type} onChange={(e) => setForm({ ...form, event_type: e.target.value })}>{TYPES.map((t) => <option key={t} value={t}>{typeLabels[t] || t}</option>)}</select></div>

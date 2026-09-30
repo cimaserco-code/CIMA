@@ -180,11 +180,15 @@ function useToast() {
           clearTimeout(timer);
           autoDismissTimers.delete(toastId);
         }
+        _clearFromRemoveQueue(toastId);
+        dispatch({ type: actionTypes.REMOVE_TOAST, toastId });
       } else {
         autoDismissTimers.forEach((t) => clearTimeout(t));
         autoDismissTimers.clear();
+        toastTimeouts.forEach((t) => clearTimeout(t));
+        toastTimeouts.clear();
+        dispatch({ type: actionTypes.REMOVE_TOAST });
       }
-      dispatch({ type: actionTypes.DISMISS_TOAST, toastId });
     },
   };
 }
