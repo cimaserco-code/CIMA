@@ -1,5 +1,9 @@
 import { supabase } from "./supabaseClient";
 
+export const NOTIFICATION_TTL_MS = 5 * 60 * 1000;
+
+const getExpirationDate = () => new Date(Date.now() - NOTIFICATION_TTL_MS).toISOString();
+
 /**
  * Registra una notificación para un usuario o conjunto de usuarios.
  * Si la tabla `notifications` no existe aún en Supabase, guarda un respaldo en la tabla `messages`
@@ -102,7 +106,10 @@ export async function fetchUserNotifications({ userId, userEmail, userName }) {
 
   try {
     // 1. Intentar consultar desde la tabla 'notifications'
-    let query = supabase.from("notifications").select("*");
+    const expiresAfter = getExpirationDate();
+    await supabase.from("notifications").delete().lt("created_at", expiresAfter);
+    await supabase.from("messages").delete().lt("created_at", expiresAfter).filter("attachments->>is_notification", "eq", "true");
+    let query = supabase.from("notifications").select("*").gte("created_at", expiresAfter);
     
     // Filtrar por ID de usuario si está disponible
     if (userId) {
@@ -127,6 +134,7 @@ export async function fetchUserNotifications({ userId, userEmail, userName }) {
     if (!msgErr && msgs) {
       const parsed = msgs
         .filter(m => m.attachments && m.attachments.is_notification)
+        .filter(m => new Date(m.created_at).getTime() >= Date.now() - NOTIFICATION_TTL_MS)
         .filter(m => {
           const att = m.attachments;
           if (userId && att.target_user_id === userId) return true;
@@ -196,5 +204,31 @@ export async function markAllNotificationsAsRead(notifications = []) {
     }
   } catch (err) {
     console.warn("Error al marcar todas como leídas:", err);
+  }
+}
+
+/**
+ * Elimina una notificacion del almacenamiento correspondiente.
+ */
+export async function deleteNotification(notificationId, isFallback = false) {
+  if (!notificationId) return false;
+
+  try {
+    const table = isFallback ? "messages" : "notifications";
+
+    const { error } = await supabase
+      .from(table)
+      .delete()
+      .eq("id", notificationId);
+
+    if (error) {
+      console.warn("Error al eliminar notificación:", error);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.warn("Error al eliminar notificación:", err);
+    return false;
   }
 }

@@ -9,7 +9,7 @@ import { cap } from "@/lib/format";
 import { logActivity } from "@/lib/activityLogger";
 import { createNotification } from "@/lib/notificationService";
 import { toast } from "@/components/ui/use-toast";
-import { isResourceInUserArea, filterMembersByArea } from "@/lib/areaPermissions";
+import { isResourceInUserArea, filterMembersByArea, getAreaCategory } from "@/lib/areaPermissions";
 
 const TYPES = ["audiencia", "vencimiento_termino", "reunion_interna", "cita_cliente", "diligencia", "recordatorio_general"];
 const typeColors = { 
@@ -115,12 +115,19 @@ function getMonthMatrix(year, month) {
 
 const toArray = (v) => Array.isArray(v) ? v : (v ? [v] : []);
 const lawyers = (v) => Array.isArray(v) ? (v.length ? v.join(", ") : "—") : (v || "—");
+const areaStyles = {
+  penal: "border-rose-400/30 bg-rose-400/10 text-rose-300",
+  blp: "border-cyan-400/30 bg-cyan-400/10 text-cyan-300",
+  unknown: "border-[#F5F5F3]/15 bg-[#F5F5F3]/5 text-[#F5F5F3]/40"
+};
 
 const EMPTY = { title: "", event_type: "audiencia", event_date: "", event_time: "", case_id: "", assigned_lawyers: [], description: "" };
 
 export default function Calendario() {
   const { user, profile, permissions } = useAuth();
   const isAdmin = !!permissions?.can_view_all_cases;
+  const role = (profile?.role || "").trim().toLowerCase();
+  const showAreaLabels = role === "admin" || role === "direccion general";
 
   const [events, setEvents] = useState([]);
   const [members, setMembers] = useState([]);
@@ -159,6 +166,20 @@ export default function Calendario() {
   // Filter cases and events strictly by Area:
   const visibleCases = cases.filter(c => isResourceInUserArea(c, profile, { cases, members }, permissions));
   const visibleEvents = events.filter(e => isResourceInUserArea(e, profile, { cases, members }, permissions));
+  const getEventArea = (event) => {
+    const areaId = event.area_id || cases.find(c => c.id === event.case_id)?.area_id;
+    return getAreaCategory(areaId);
+  };
+  const renderAreaBadge = (event, compact = false) => {
+    if (!showAreaLabels) return null;
+    const area = getEventArea(event);
+    const label = area === "penal" ? "PENAL" : area === "blp" ? "BLP" : "SIN ÁREA";
+    return (
+      <span className={`inline-flex items-center border font-medium tracking-wider uppercase ${areaStyles[area || "unknown"]} ${compact ? "px-1 py-0.5 text-[7px]" : "px-2 py-1 text-[9px]"}`}>
+        {label}
+      </span>
+    );
+  };
 
   const filtered = filterType === "all" ? visibleEvents : visibleEvents.filter((e) => e.event_type === filterType);
   const allSorted = [...filtered].sort(compareEvents);
@@ -313,9 +334,12 @@ export default function Calendario() {
       className="bg-[#0F0F0F] border border-[#1A1A1A] p-4 group cursor-pointer hover:border-[#C9A227]/50 transition-colors text-left"
     >
       <div className="flex items-center justify-between mb-2">
-        <span className={`text-[9px] tracking-wider uppercase px-2 py-1 font-medium ${typeColors[e.event_type] || ""}`}>
-          {typeLabels[e.event_type] || e.event_type}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <span className={`text-[9px] tracking-wider uppercase px-2 py-1 font-medium ${typeColors[e.event_type] || ""}`}>
+            {typeLabels[e.event_type] || e.event_type}
+          </span>
+          {renderAreaBadge(e)}
+        </div>
         <div className="flex items-center gap-2">
           {e.event_time && <span className="text-[#F5F5F3]/30 text-[11px] flex items-center gap-1"><Clock size={11} />{e.event_time}</span>}
           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -352,6 +376,14 @@ export default function Calendario() {
           {TYPES.map((t) => <option key={t} value={t}>{typeLabels[t] || t}</option>)}
         </select>
       </div>
+
+      {showAreaLabels && (
+        <div className="flex items-center gap-4 mb-5 text-[9px] tracking-wider uppercase" aria-label="Leyenda de áreas">
+          <span className="text-[#F5F5F3]/35">Área del evento:</span>
+          <span className="inline-flex items-center gap-1.5 text-rose-300"><span className="w-2 h-2 bg-rose-400" />Penal</span>
+          <span className="inline-flex items-center gap-1.5 text-cyan-300"><span className="w-2 h-2 bg-cyan-400" />BLP</span>
+        </div>
+      )}
 
       {loading ? <p className="text-[#F5F5F3]/30 text-sm">Cargando eventos…</p> : view === "lista" ? (
         <div className="space-y-8">
@@ -403,10 +435,11 @@ export default function Calendario() {
                         <div 
                           key={e.id} 
                           onClick={(ev) => { ev.stopPropagation(); setViewingEvent(e); }}
-                          className="flex items-center gap-1.5 px-2 py-1 bg-[#121212] hover:bg-[#1C1C1C] border border-[#1E1E1E] hover:border-[#C9A227]/50 transition-all rounded-[2px] group/pill cursor-pointer"
+                          className={`flex items-center gap-1.5 px-2 py-1 bg-[#121212] hover:bg-[#1C1C1C] border ${showAreaLabels && getEventArea(e) ? areaStyles[getEventArea(e)] : "border-[#1E1E1E] hover:border-[#C9A227]/50"} transition-all rounded-[2px] group/pill cursor-pointer`}
                           title={`${e.title} (${e.event_time || 'Sin hora'}) - Clic para ver detalles`}
                         >
                           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${typeDots[e.event_type] || "bg-[#F5F5F3]/30"}`} />
+                          {renderAreaBadge(e, true)}
                           <span className="text-[10px] text-[#F5F5F3]/70 group-hover/pill:text-[#C9A227] truncate">
                             {e.event_time ? `${e.event_time} ` : ''}{e.title}
                           </span>
@@ -443,6 +476,7 @@ export default function Calendario() {
         {viewingEvent && (
           <div className="space-y-4 text-left">
             <div className="pb-3 border-b border-[#1A1A1A]">
+              {renderAreaBadge(viewingEvent)}
               <span className={`text-[10px] tracking-wider uppercase px-2.5 py-1 inline-block mb-2 font-medium ${typeColors[viewingEvent.event_type] || ""}`}>
                 {typeLabels[viewingEvent.event_type] || viewingEvent.event_type}
               </span>

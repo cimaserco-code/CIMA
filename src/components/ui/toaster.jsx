@@ -2,8 +2,8 @@ import { useToast } from "@/components/ui/use-toast";
 import {
   Toast,
   ToastClose,
-  ToastDescription,
   ToastProvider,
+  ToastDescription,
   ToastTitle,
   ToastViewport,
 } from "@/components/ui/toast";
@@ -22,12 +22,14 @@ export function Toaster() {
                 <ToastDescription>{description}</ToastDescription>
               )}
             </div>
+
             {action}
             <ToastClose onClick={() => dismiss(id)} />
           </Toast>
         );
       })}
+
       <ToastViewport />
     </ToastProvider>
   );
-} 
+}

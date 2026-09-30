@@ -1,7 +1,7 @@
 // Inspired by react-hot-toast library
 import { useState, useEffect } from "react";
 
-const TOAST_LIMIT = 5;
+const TOAST_LIMIT = 20;
 const DEFAULT_TOAST_DURATION = 5000; // 5 segundos de tiempo de vida
 const TOAST_REMOVE_DELAY = 400; // Delay para animación de salida antes de remover
 
