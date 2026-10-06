@@ -133,6 +133,63 @@ export function downloadEventIcs(event, cases) {
   URL.revokeObjectURL(url);
 }
 
+export function downloadAllEventsIcs(eventsList, casesList) {
+  if (!eventsList || eventsList.length === 0) {
+    alert("No hay eventos disponibles para exportar.");
+    return;
+  }
+  const icsLines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//CIMA//Calendario Juridico//ES",
+    "CALSCALE:GREGORIAN"
+  ];
+
+  eventsList.forEach(event => {
+    const caseObj = casesList?.find(c => c.id === event.case_id);
+    const dateStr = (event.event_date || "").replace(/-/g, "");
+    if (!dateStr) return;
+    let startISO = dateStr;
+    let endISO = dateStr;
+
+    if (event.event_time) {
+      const parts = String(event.event_time).split(":");
+      const h = (parts[0] || "09").padStart(2, "0");
+      const m = (parts[1] || "00").padStart(2, "0");
+      startISO = `${dateStr}T${h}${m}00`;
+      const endH = String((parseInt(h, 10) + 1) % 24).padStart(2, "0");
+      endISO = `${dateStr}T${endH}${m}00`;
+    }
+
+    const lawyersStr = Array.isArray(event.assigned_lawyers) ? event.assigned_lawyers.join(", ") : (event.assigned_lawyers || "—");
+    const cleanDesc = cleanDescription(event.description || "").replace(/\n/g, "\\n");
+    const caseInfo = caseObj ? `${caseObj.title} (${caseObj.case_number})` : "Sin caso";
+
+    icsLines.push(
+      "BEGIN:VEVENT",
+      `SUMMARY:${(event.title || "Evento CIMA").replace(/[,;]/g, " ")}`,
+      `DESCRIPTION:${cleanDesc} | Caso: ${caseInfo} | Abogados: ${lawyersStr}`,
+      `LOCATION:Despacho CIMA / Juzgados`,
+      `DTSTART:${startISO}`,
+      `DTEND:${endISO}`,
+      "STATUS:CONFIRMED",
+      "END:VEVENT"
+    );
+  });
+
+  icsLines.push("END:VCALENDAR");
+
+  const blob = new Blob([icsLines.join("\r\n")], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `cima_agenda_completa.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 const TYPES = ["audiencia", "vencimiento_termino", "reunion_interna", "cita_cliente", "diligencia", "recordatorio_general"];
 const typeColors = { 
   audiencia: "text-[#C9A227] bg-[#C9A227]/10", 
@@ -253,8 +310,8 @@ const EMPTY = {
   assigned_lawyers: [], 
   description: "", 
   area: "legal",
-  reminder_enabled: false,
-  reminder_timing: "1h",
+  reminder_enabled: true,
+  reminder_timing: "1d",
   reminder_email: ""
 };
 
@@ -272,6 +329,7 @@ export default function Calendario() {
   const [view, setView] = useState("calendario");
   const [filterType, setFilterType] = useState("all");
   const [modalOpen, setModalOpen] = useState(false);
+  const [gCalModalOpen, setGCalModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [selectedDay, setSelectedDay] = useState(null);
   const [viewingEvent, setViewingEvent] = useState(null);
@@ -353,6 +411,8 @@ export default function Calendario() {
     setForm({ 
       ...EMPTY, 
       area: defaultArea,
+      reminder_enabled: true,
+      reminder_timing: "1d",
       reminder_email: user?.email || ""
     }); 
     setModalOpen(true); 
@@ -373,14 +433,14 @@ export default function Calendario() {
       assigned_lawyers: toArray(e.assigned_lawyers), 
       description: cleanDescription(e.description),
       area: currentArea,
-      reminder_enabled: !!reminderInfo,
-      reminder_timing: reminderInfo?.timing || "1h",
+      reminder_enabled: true,
+      reminder_timing: reminderInfo?.timing || "1d",
       reminder_email: reminderInfo?.email || user?.email || ""
     });
     setModalOpen(true);
   };
 
-  const submit = async () => {
+  const submit = async (syncWithGoogle = false) => {
     if (!form.title.trim()) {
       alert("Por favor ingresa un título para el evento.");
       return;
@@ -392,10 +452,11 @@ export default function Calendario() {
 
     setSaving(true);
     try {
+      const targetEmail = (form.reminder_email || user?.email || "").trim();
       const finalDesc = injectEventMetadata(form.description, form.area, {
-        enabled: form.reminder_enabled,
-        timing: form.reminder_timing,
-        email: form.reminder_email
+        enabled: true,
+        timing: form.reminder_timing || "1d",
+        email: targetEmail
       });
       const payload = {
         title: form.title,
@@ -437,6 +498,12 @@ export default function Calendario() {
       }
       if (res.error) throw res.error;
 
+      // Si el usuario seleccionó sincronizar con Google Calendar
+      if (syncWithGoogle) {
+        const gcalUrl = getGoogleCalendarUrl(payload, cases);
+        window.open(gcalUrl, "_blank", "noopener,noreferrer");
+      }
+
       // Disparar notificaciones a los abogados asignados
       const assigned = Array.isArray(form.assigned_lawyers) ? form.assigned_lawyers : [form.assigned_lawyers];
       const userNameLower = (profile?.full_name || "").toLowerCase().trim();
@@ -466,6 +533,11 @@ export default function Calendario() {
           }
         }
       }
+
+      toast({
+        title: editingId ? "Evento actualizado" : "Evento creado",
+        description: `Guardado en CIMA.${targetEmail ? ` Aviso automático programado a ${targetEmail}.` : ""}${syncWithGoogle ? " Abriendo Google Calendar..." : ""}`
+      });
 
       setModalOpen(false); setForm(EMPTY); setEditingId(null); load();
     } catch (e) { 
@@ -534,6 +606,29 @@ export default function Calendario() {
         <div className="space-y-1 text-[11px] text-[#F5F5F3]/40">
           <p><span className="text-[#F5F5F3]/20">Abogado(s):</span> {lawyers(e.assigned_lawyers)}</p>
         </div>
+
+        {/* Botón de vinculación directa con Google Calendar y descarga .ics */}
+        <div className="mt-3 pt-2.5 border-t border-[#181818] flex items-center justify-between gap-2">
+          <a
+            href={getGoogleCalendarUrl(e, cases)}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(ev) => ev.stopPropagation()}
+            className="inline-flex items-center gap-1.5 text-[11px] text-[#C9A227] hover:text-[#e0b838] transition-colors font-medium hover:underline bg-[#C9A227]/10 px-2.5 py-1 rounded-sm border border-[#C9A227]/25"
+            title="Sincronizar y añadir este evento directamente a tu Google Calendar"
+          >
+            <ExternalLink size={12} />
+            <span>Google Calendar</span>
+          </a>
+          <button
+            type="button"
+            onClick={(ev) => { ev.stopPropagation(); downloadEventIcs(e, cases); }}
+            className="text-[10px] text-[#F5F5F3]/40 hover:text-[#F5F5F3] px-2 py-1 bg-[#141414] hover:bg-[#1E1E1E] border border-[#1E1E1E] rounded-sm transition-colors"
+            title="Descargar archivo de calendario .ics para Outlook/iPhone"
+          >
+            Descargar .ics
+          </button>
+        </div>
       </div>
     );
   };
@@ -541,11 +636,21 @@ export default function Calendario() {
   return (
     <div>
       <PageHeader title="Calendario" subtitle={`${filtered.length} eventos`} action={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <div className="flex bg-[#080808] border border-[#1A1A1A]">
             <button onClick={() => setView("calendario")} className={`flex items-center gap-1.5 px-3 py-2 text-[10px] tracking-wider uppercase transition-colors ${view === "calendario" ? "bg-[#C9A227] text-[#080808]" : "text-[#F5F5F3]/40 hover:text-[#F5F5F3]"}`}><LayoutGrid size={13} /> Calendario</button>
             <button onClick={() => setView("lista")} className={`flex items-center gap-1.5 px-3 py-2 text-[10px] tracking-wider uppercase transition-colors ${view === "lista" ? "bg-[#C9A227] text-[#080808]" : "text-[#F5F5F3]/40 hover:text-[#F5F5F3]"}`}><List size={13} /> Lista</button>
           </div>
+
+          <button 
+            onClick={() => setGCalModalOpen(true)} 
+            className="border border-[#C9A227]/40 bg-[#C9A227]/10 hover:bg-[#C9A227]/20 text-[#C9A227] text-xs tracking-wider uppercase px-3.5 py-2.5 flex items-center gap-2 transition-colors font-medium"
+            title="Vinculación y sincronización con Google Calendar"
+          >
+            <ExternalLink size={14} />
+            <span>Google Calendar</span>
+          </button>
+
           <button onClick={openNew} className="relative overflow-hidden group bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 flex items-center gap-2">
             <span className="absolute inset-0 bg-[#F5F5F3] -translate-x-full group-hover:translate-x-0 transition-transform duration-500" />
             <span className="relative z-10 group-hover:text-[#080808] transition-colors duration-500 flex items-center gap-2"><Plus size={15} /> Nuevo Evento</span>
@@ -823,55 +928,116 @@ export default function Calendario() {
           </div>
           <div><label className={labelCls}>Descripción</label><textarea className={inputCls} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Descripción" /></div>
 
-          {/* Aviso Personal vía Correo Electrónico */}
-          <div className="p-3.5 bg-[#0C0C0C] border border-[#1E1E1E] space-y-3 rounded-sm">
+          {/* Aviso Personal Automático por Correo Electrónico */}
+          <div className="p-3.5 bg-[#0C0C0C] border border-[#C9A227]/30 space-y-3 rounded-sm">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Mail size={14} className="text-[#C9A227]" />
+                <Mail size={15} className="text-[#C9A227]" />
                 <span className="text-xs text-[#F5F5F3] font-medium">Aviso personal por correo electrónico</span>
               </div>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.reminder_enabled}
-                  onChange={(e) => setForm({ ...form, reminder_enabled: e.target.checked })}
-                  className="sr-only peer"
-                />
-                <div className="w-8 h-4 bg-[#1E1E1E] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-[#F5F5F3] after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#C9A227]"></div>
-              </label>
+              <span className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-sm">
+                ✓ Aviso automático activo
+              </span>
             </div>
+            <p className="text-[11px] text-[#F5F5F3]/50 leading-relaxed">
+              CIMA enviará automáticamente una alerta previa a tu correo para que no se te pase este compromiso.
+            </p>
 
-            {form.reminder_enabled && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2.5 border-t border-[#181818]">
-                <div>
-                  <label className={labelCls}>Correo Personal / Destinatario</label>
-                  <input
-                    type="email"
-                    className={inputCls}
-                    value={form.reminder_email}
-                    onChange={(e) => setForm({ ...form, reminder_email: e.target.value })}
-                    placeholder="tucorreo@ejemplo.com"
-                  />
-                </div>
-                <div>
-                  <label className={labelCls}>Anticipación del Aviso</label>
-                  <select
-                    className={inputCls}
-                    value={form.reminder_timing}
-                    onChange={(e) => setForm({ ...form, reminder_timing: e.target.value })}
-                  >
-                    <option value="1h">1 hora antes</option>
-                    <option value="2h">2 horas antes</option>
-                    <option value="4h">4 horas antes</option>
-                    <option value="12h">12 horas antes</option>
-                    <option value="1d">1 día antes (24 horas)</option>
-                  </select>
-                </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2.5 border-t border-[#181818]">
+              <div>
+                <label className={labelCls}>Correo Personal de Notificación</label>
+                <input
+                  type="email"
+                  className={inputCls}
+                  value={form.reminder_email}
+                  onChange={(e) => setForm({ ...form, reminder_email: e.target.value })}
+                  placeholder="tucorreo@ejemplo.com"
+                />
               </div>
-            )}
+              <div>
+                <label className={labelCls}>Anticipación del Aviso</label>
+                <select
+                  className={inputCls}
+                  value={form.reminder_timing || "1d"}
+                  onChange={(e) => setForm({ ...form, reminder_timing: e.target.value })}
+                >
+                  <option value="1d">1 día antes (24 horas) - Predeterminado</option>
+                  <option value="12h">12 horas antes</option>
+                  <option value="4h">4 horas antes</option>
+                  <option value="2h">2 horas antes</option>
+                  <option value="1h">1 hora antes</option>
+                </select>
+              </div>
+            </div>
           </div>
 
-          <button onClick={submit} disabled={!form.title || !form.event_date || saving} className="w-full bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 disabled:opacity-30 hover:bg-[#A8841D] transition-colors font-medium">{saving ? "Guardando…" : editingId ? "Guardar Cambios" : "Crear Evento"}</button>
+          <div className="space-y-2 pt-2">
+            <button 
+              type="button"
+              onClick={() => submit(true)} 
+              disabled={!form.title || !form.event_date || saving} 
+              className="w-full bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 disabled:opacity-30 hover:bg-[#A8841D] transition-colors font-semibold flex items-center justify-center gap-2"
+              title="Guarda el evento en CIMA y abre de inmediato Google Calendar para agregarlo a tu agenda personal"
+            >
+              <ExternalLink size={14} />
+              {saving ? "Guardando…" : "Guardar y Vincular en Google Calendar"}
+            </button>
+            <button 
+              type="button"
+              onClick={() => submit(false)} 
+              disabled={!form.title || !form.event_date || saving} 
+              className="w-full border border-[#262626] bg-[#121212] hover:bg-[#1A1A1A] text-[#F5F5F3]/80 hover:text-[#F5F5F3] text-xs tracking-wider uppercase px-4 py-2.5 disabled:opacity-30 transition-colors font-medium"
+            >
+              {saving ? "…" : editingId ? "Guardar solo en CIMA" : "Crear solo en CIMA"}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Modal de Vinculación y Sincronización con Google Calendar */}
+      <Modal open={gCalModalOpen} onClose={() => setGCalModalOpen(false)} title="Vinculación con Google Calendar">
+        <div className="space-y-4 text-left text-xs">
+          <div className="p-4 bg-[#0F0F0F] border border-[#C9A227]/30 rounded-sm">
+            <div className="flex items-center gap-2 mb-2">
+              <CalIcon size={18} className="text-[#C9A227]" />
+              <h4 className="text-sm font-semibold text-[#F5F5F3]">Sincronización Directa de CIMA con Google</h4>
+            </div>
+            <p className="text-[#F5F5F3]/70 leading-relaxed mb-3">
+              La integración con Google Calendar está activa en toda la plataforma para evitar duplicidad de captura y mantener tus audiencias y diligencias siempre a la mano:
+            </p>
+            <ul className="space-y-2 text-[#F5F5F3]/80 list-disc list-inside">
+              <li><strong className="text-[#C9A227]">En cada tarjeta de evento:</strong> Haz clic en el botón <span className="text-[#C9A227] font-semibold">"Google Calendar"</span> para añadirlo con un solo clic.</li>
+              <li><strong className="text-[#C9A227]">Al agendar un evento:</strong> Usa el botón <span className="text-[#C9A227] font-semibold">"Guardar y Vincular en Google Calendar"</span> para registrarlo en CIMA y enviarlo a tu cuenta de Google.</li>
+              <li><strong className="text-[#C9A227]">Aviso personal por correo:</strong> Todos los eventos programan automáticamente una notificación previa a tu buzón (por defecto 1 día antes).</li>
+            </ul>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <a
+              href="https://calendar.google.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="p-3 bg-[#121212] hover:bg-[#1C1C1C] border border-[#252525] hover:border-[#C9A227]/40 flex items-center justify-between text-[#F5F5F3] font-medium transition-colors rounded-sm"
+            >
+              <span className="flex items-center gap-2">
+                <ExternalLink size={15} className="text-[#C9A227]" />
+                Abrir mi Google Calendar
+              </span>
+              <span className="text-[10px] text-[#F5F5F3]/40">↗</span>
+            </a>
+
+            <button
+              type="button"
+              onClick={() => downloadAllEventsIcs(filtered, cases)}
+              className="p-3 bg-[#121212] hover:bg-[#1C1C1C] border border-[#252525] hover:border-[#C9A227]/40 flex items-center justify-between text-[#F5F5F3] font-medium transition-colors text-left rounded-sm"
+            >
+              <span className="flex items-center gap-2">
+                <Download size={15} className="text-[#C9A227]" />
+                Descargar todos ({filtered.length}) en .ics
+              </span>
+              <span className="text-[10px] text-[#F5F5F3]/40">Outlook / Celular</span>
+            </button>
+          </div>
         </div>
       </Modal>
     </div>

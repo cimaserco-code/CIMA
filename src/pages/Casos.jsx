@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Briefcase, Calendar, Pencil, Trash2, Folder, Search, Eye, FileText, CheckSquare, Clock, ArrowUpRight, X, Download } from "lucide-react";
+import { Plus, Briefcase, Calendar, Pencil, Trash2, Folder, Search, Eye, FileText, CheckSquare, Clock, ArrowUpRight, X, Download, ExternalLink } from "lucide-react";
 import PageHeader from "@/components/legal/PageHeader";
 import Modal from "@/components/legal/Modal";
 import LawyerSelect from "@/components/legal/LawyerSelect";
@@ -1038,9 +1038,22 @@ export default function Casos() {
                   </div>
                   <div className="min-w-0">
                     <span className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider block">Próxima Audiencia</span>
-                    <span className="text-[#F5F5F3] font-medium break-words">
-                      {selectedCaseDetail.next_hearing ? new Date(selectedCaseDetail.next_hearing).toLocaleDateString("es") : "Sin audiencia agendada"}
-                    </span>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[#F5F5F3] font-medium break-words">
+                        {selectedCaseDetail.next_hearing ? new Date(selectedCaseDetail.next_hearing).toLocaleDateString("es") : "Sin audiencia agendada"}
+                      </span>
+                      {selectedCaseDetail.next_hearing && (
+                        <a
+                          href={`https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(`Audiencia: ${selectedCaseDetail.title} (${selectedCaseDetail.case_number || ''})`)}&dates=${selectedCaseDetail.next_hearing.replace(/-/g, '')}/${selectedCaseDetail.next_hearing.replace(/-/g, '')}&details=${encodeURIComponent(`Audiencia programada para el caso: ${selectedCaseDetail.title}\nExpediente: ${selectedCaseDetail.case_number || 'N/A'}\nJuzgado/Autoridad: ${selectedCaseDetail.court || 'N/A'}`)}&location=${encodeURIComponent(selectedCaseDetail.court || 'Juzgado')}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] text-[#C9A227] hover:underline bg-[#C9A227]/10 px-2 py-0.5 rounded-sm border border-[#C9A227]/20"
+                          title="Añadir audiencia a Google Calendar"
+                        >
+                          <ExternalLink size={11} /> Google Calendar
+                        </a>
+                      )}
+                    </div>
                   </div>
                 </div>
 
