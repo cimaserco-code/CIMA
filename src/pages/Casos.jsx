@@ -12,12 +12,65 @@ import { createNotification } from "@/lib/notificationService";
 import { toast } from "@/components/ui/use-toast";
 import { filterMembersByArea } from "@/lib/areaPermissions";
 
-const PRACTICE_AREAS = ["Litigio", "Corporativo", "M&A", "Propiedad Intelectual", "Regulatorio", "Arbitraje", "Fiscal", "Laboral"];
+const PRACTICE_AREAS = ["Penal", "Litigio", "Corporativo", "M&A", "Propiedad Intelectual", "Regulatorio", "Arbitraje", "Fiscal", "Laboral"];
 const STATUSES = ["activo", "en_proceso", "en_espera", "cerrado", "archivado"];
 const PRIORITIES = ["alta", "media", "baja"];
 
 const statusColors = { activo: "text-[#C9A227] bg-[#C9A227]/10", en_proceso: "text-yellow-400 bg-yellow-400/10", en_espera: "text-[#F5F5F3]/40 bg-[#F5F5F3]/5", cerrado: "text-green-400 bg-green-400/10", archivado: "text-[#F5F5F3]/20 bg-[#F5F5F3]/5" };
 const priorityColors = { alta: "text-red-400", media: "text-yellow-400", baja: "text-[#F5F5F3]/40" };
+
+export const EMPTY_CNPP = {
+  active: false,
+  calidad: "victima", // 'victima' | 'imputado'
+  delito: "",
+  carpeta_investigacion: "",
+  determinacion: "tramite", // 'tramite' | 'abstenerse' | 'neap' | 'at' | 'eap'
+  impugno_258: "no", // 'si' | 'no'
+  fecha_impugnacion: "",
+  masc_investigacion: "no", // 'si' | 'no'
+  masc_numero_acuerdo: "",
+  masc_fecha_inicio: "",
+  masc_fecha_termino: "",
+  masc_condiciones: ""
+};
+
+export const DETERMINACION_LABELS = {
+  tramite: "En trámite / Investigación inicial",
+  abstenerse: "Abstenerse de investigar",
+  neap: "No Ejercicio de la Acción Penal (NEAP)",
+  at: "Archivo Temporal (AT)",
+  eap: "Ejercicio de la Acción Penal (EAP)"
+};
+
+export function parseCnppData(description) {
+  if (!description || typeof description !== "string") return { ...EMPTY_CNPP };
+  const match = description.match(/<!--\s*cnpp_investigation:([\s\S]*?)\s*-->/i);
+  if (match) {
+    try {
+      const parsed = JSON.parse(match[1]);
+      return { ...EMPTY_CNPP, ...parsed, active: true };
+    } catch (e) {
+      console.error("Error parsing CNPP investigation data:", e);
+    }
+  }
+  return { ...EMPTY_CNPP };
+}
+
+export function cleanCaseDescription(description) {
+  if (!description || typeof description !== "string") return "";
+  return description
+    .replace(/<!--\s*cnpp_investigation:[\s\S]*?-->\s*/gi, "")
+    .trim();
+}
+
+export function injectCnppData(description, cnppData) {
+  const clean = cleanCaseDescription(description);
+  if (!cnppData || (!cnppData.active && !cnppData.carpeta_investigacion && !cnppData.delito)) {
+    return clean;
+  }
+  const payload = JSON.stringify(cnppData);
+  return `<!-- cnpp_investigation:${payload} -->\n${clean}`.trim();
+}
 
 const genCaseNumber = () => {
   const now = new Date();
@@ -25,7 +78,20 @@ const genCaseNumber = () => {
   return `CMA-${d}-${Math.floor(Math.random() * 1000)}`;
 };
 
-const EMPTY = { title: "", case_number: "", client: "", client_id: "", practice_area: "Litigio", status: "activo", priority: "media", assigned_lawyer: [], next_hearing: "", description: "", area_id: "" };
+const EMPTY = { 
+  title: "", 
+  case_number: "", 
+  client: "", 
+  client_id: "", 
+  practice_area: "Litigio", 
+  status: "activo", 
+  priority: "media", 
+  assigned_lawyer: [], 
+  next_hearing: "", 
+  description: "", 
+  area_id: "",
+  cnpp: { ...EMPTY_CNPP }
+};
 
 const toArray = (v) => Array.isArray(v) ? v : (v ? [v] : []);
 const lawyers = (v) => Array.isArray(v) ? (v.length ? v.join(", ") : "—") : (v || "—");
@@ -132,12 +198,21 @@ export default function Casos() {
 
   const openNew = () => {
     setEditingId(null);
-    setForm({ ...EMPTY, case_number: genCaseNumber(), area_id: profile?.area_id || "" });
+    const userArea = areas.find(a => a.id === profile?.area_id);
+    const isPenal = (userArea?.name || "").toLowerCase() === "penal";
+    setForm({ 
+      ...EMPTY, 
+      case_number: genCaseNumber(), 
+      area_id: profile?.area_id || "",
+      practice_area: isPenal ? "Penal" : "Litigio",
+      cnpp: { ...EMPTY_CNPP, active: isPenal }
+    });
     setModalOpen(true);
   };
 
   const openEdit = (c) => {
     setEditingId(c.id);
+    const parsedCnpp = parseCnppData(c.description);
     setForm({
       title: c.title,
       case_number: c.case_number,
@@ -148,8 +223,9 @@ export default function Casos() {
       priority: c.priority || "media",
       assigned_lawyer: toArray(c.assigned_lawyers),
       next_hearing: c.next_hearing || "",
-      description: c.description || "",
-      area_id: c.area_id || ""
+      description: cleanCaseDescription(c.description),
+      area_id: c.area_id || "",
+      cnpp: parsedCnpp
     });
     setModalOpen(true);
   };
@@ -165,6 +241,7 @@ export default function Casos() {
     }
     setSaving(true);
     try {
+      const finalDesc = injectCnppData(form.description, form.cnpp);
       const payload = {
         title: form.title,
         case_number: form.case_number,
@@ -175,7 +252,7 @@ export default function Casos() {
         priority: form.priority,
         assigned_lawyers: toArray(form.assigned_lawyer),
         next_hearing: form.next_hearing || null,
-        description: form.description,
+        description: finalDesc,
         area_id: form.area_id || null
       };
 
@@ -453,8 +530,231 @@ export default function Casos() {
             <div><label className={labelCls}>Prioridad</label><select className={inputCls} value={form.priority} onChange={(e) => setForm({ ...form, priority: e.target.value })}>{PRIORITIES.map((p) => <option key={p} value={p}>{cap(p)}</option>)}</select></div>
             <div><label className={labelCls}>Próx. audiencia</label><input type="date" className={inputCls} value={form.next_hearing} onChange={(e) => setForm({ ...form, next_hearing: e.target.value })} /></div>
           </div>
-          <div><label className={labelCls}>Descripción</label><textarea className={inputCls} rows={3} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Descripción del caso" /></div>
-          <button onClick={submit} disabled={!form.title || !form.client_id || saving} className="w-full bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 disabled:opacity-30 hover:bg-[#A8841D] transition-colors">{saving ? "Guardando…" : editingId ? "Guardar Cambios" : "Crear Caso"}</button>
+          <div><label className={labelCls}>Descripción</label><textarea className={inputCls} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Descripción del caso" /></div>
+
+          {/* Sección Fase de Investigación Penal / CNPP */}
+          <div className="border border-[#222] bg-[#0A0A0A] p-4 space-y-4 rounded-sm">
+            <div className="flex items-center justify-between border-b border-[#1A1A1A] pb-3">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-[#C9A227]" />
+                <span className="text-xs uppercase tracking-wider font-semibold text-[#F5F5F3]">
+                  Fase de Investigación / Carpeta Penal (CNPP)
+                </span>
+              </div>
+              <label className="flex items-center gap-2 text-xs text-[#F5F5F3]/70 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.cnpp?.active}
+                  onChange={(e) => setForm({ ...form, cnpp: { ...form.cnpp, active: e.target.checked } })}
+                  className="accent-[#C9A227] w-4 h-4 cursor-pointer"
+                />
+                <span>Habilitar datos de Carpeta</span>
+              </label>
+            </div>
+
+            {form.cnpp?.active && (
+              <div className="space-y-4 pt-1 text-xs">
+                {/* 1. Víctima o Imputado */}
+                <div>
+                  <label className={labelCls}>Calidad Procesal / Sujeto</label>
+                  <div className="flex items-center gap-6 mt-1">
+                    <label className="flex items-center gap-2 cursor-pointer text-[#F5F5F3]">
+                      <input
+                        type="radio"
+                        name="cnpp_calidad"
+                        value="victima"
+                        checked={form.cnpp.calidad === "victima"}
+                        onChange={() => setForm({ ...form, cnpp: { ...form.cnpp, calidad: "victima" } })}
+                        className="accent-[#C9A227] w-4 h-4"
+                      />
+                      <span>Víctima / Ofendido</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer text-[#F5F5F3]">
+                      <input
+                        type="radio"
+                        name="cnpp_calidad"
+                        value="imputado"
+                        checked={form.cnpp.calidad === "imputado"}
+                        onChange={() => setForm({ ...form, cnpp: { ...form.cnpp, calidad: "imputado" } })}
+                        className="accent-[#C9A227] w-4 h-4"
+                      />
+                      <span>Imputado / Investigado</span>
+                    </label>
+                  </div>
+                </div>
+
+                {/* 2. Delito y 3. No. Carpeta */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className={labelCls}>Delito (Ej. Despojo)</label>
+                    <input
+                      className={inputCls}
+                      value={form.cnpp.delito}
+                      onChange={(e) => setForm({ ...form, cnpp: { ...form.cnpp, delito: e.target.value } })}
+                      placeholder="Ej. Despojo, Fraude, Homicidio"
+                    />
+                  </div>
+                  <div>
+                    <label className={labelCls}>Número de Carpeta de Investigación</label>
+                    <input
+                      className={inputCls}
+                      value={form.cnpp.carpeta_investigacion}
+                      onChange={(e) => setForm({ ...form, cnpp: { ...form.cnpp, carpeta_investigacion: e.target.value } })}
+                      placeholder="Ej. XAL/DXI/F3°/12345/2026"
+                    />
+                  </div>
+                </div>
+
+                {/* 4. Determinación de Carpeta */}
+                <div className="p-3 bg-[#0F0F0F] border border-[#1A1A1A] space-y-2">
+                  <label className={labelCls}>Determinación de Carpeta de Investigación</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-1">
+                    {Object.entries(DETERMINACION_LABELS).map(([k, label]) => (
+                      <label key={k} className="flex items-center gap-2 cursor-pointer p-2 bg-[#0A0A0A] border border-[#161616] hover:border-[#222] transition-colors rounded-sm">
+                        <input
+                          type="radio"
+                          name="cnpp_determinacion"
+                          value={k}
+                          checked={form.cnpp.determinacion === k}
+                          onChange={() => setForm({ ...form, cnpp: { ...form.cnpp, determinacion: k } })}
+                          className="accent-[#C9A227] w-4 h-4"
+                        />
+                        <span className="text-[#F5F5F3]/90 text-[11px]">{label}</span>
+                      </label>
+                    ))}
+                  </div>
+
+                  {/* Impugnación Recurso Art. 258 CNPP */}
+                  <div className="mt-3 pt-3 border-t border-[#161616] space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <span className="text-[11px] text-[#F5F5F3]/80">
+                        ¿Se impugnó determinación mediante Recurso innominado (Artículo 258 CNPP)?
+                      </span>
+                      <div className="flex items-center gap-4">
+                        <label className="flex items-center gap-1.5 cursor-pointer text-[#F5F5F3]">
+                          <input
+                            type="radio"
+                            name="cnpp_impugno_258"
+                            value="si"
+                            checked={form.cnpp.impugno_258 === "si"}
+                            onChange={() => setForm({ ...form, cnpp: { ...form.cnpp, impugno_258: "si" } })}
+                            className="accent-[#C9A227] w-3.5 h-3.5"
+                          />
+                          <span>SÍ</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer text-[#F5F5F3]">
+                          <input
+                            type="radio"
+                            name="cnpp_impugno_258"
+                            value="no"
+                            checked={form.cnpp.impugno_258 === "no"}
+                            onChange={() => setForm({ ...form, cnpp: { ...form.cnpp, impugno_258: "no" } })}
+                            className="accent-[#C9A227] w-3.5 h-3.5"
+                          />
+                          <span>NO</span>
+                        </label>
+                      </div>
+                    </div>
+
+                    {form.cnpp.impugno_258 === "si" && (
+                      <div className="pt-2">
+                        <label className={labelCls}>Fecha de Impugnación (Art. 258 CNPP)</label>
+                        <input
+                          type="date"
+                          className={inputCls}
+                          value={form.cnpp.fecha_impugnacion}
+                          onChange={(e) => setForm({ ...form, cnpp: { ...form.cnpp, fecha_impugnacion: e.target.value } })}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* 5. MASC en Investigación */}
+                <div className="p-3 bg-[#0F0F0F] border border-[#1A1A1A] space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <span className="text-[11px] text-[#F5F5F3]/80">
+                      ¿Se llegó a un mecanismo alterno de solución de controversia (MASC) en etapa de Investigación?
+                    </span>
+                    <div className="flex items-center gap-4">
+                      <label className="flex items-center gap-1.5 cursor-pointer text-[#F5F5F3]">
+                        <input
+                          type="radio"
+                          name="cnpp_masc"
+                          value="si"
+                          checked={form.cnpp.masc_investigacion === "si"}
+                          onChange={() => setForm({ ...form, cnpp: { ...form.cnpp, masc_investigacion: "si" } })}
+                          className="accent-[#C9A227] w-3.5 h-3.5"
+                        />
+                        <span>SÍ</span>
+                      </label>
+                      <label className="flex items-center gap-1.5 cursor-pointer text-[#F5F5F3]">
+                        <input
+                          type="radio"
+                          name="cnpp_masc"
+                          value="no"
+                          checked={form.cnpp.masc_investigacion === "no"}
+                          onChange={() => setForm({ ...form, cnpp: { ...form.cnpp, masc_investigacion: "no" } })}
+                          className="accent-[#C9A227] w-3.5 h-3.5"
+                        />
+                        <span>NO</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  {form.cnpp.masc_investigacion === "si" && (
+                    <div className="space-y-3 pt-2 border-t border-[#161616]">
+                      <div>
+                        <label className={labelCls}>Número de Acuerdo MASC</label>
+                        <input
+                          className={inputCls}
+                          value={form.cnpp.masc_numero_acuerdo}
+                          onChange={(e) => setForm({ ...form, cnpp: { ...form.cnpp, masc_numero_acuerdo: e.target.value } })}
+                          placeholder="Ej. 123/2026"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <label className={labelCls}>Plazo: Fecha de Inicio</label>
+                          <input
+                            type="date"
+                            className={inputCls}
+                            value={form.cnpp.masc_fecha_inicio}
+                            onChange={(e) => setForm({ ...form, cnpp: { ...form.cnpp, masc_fecha_inicio: e.target.value } })}
+                          />
+                        </div>
+                        <div>
+                          <label className={labelCls}>Plazo: Fecha de Término</label>
+                          <input
+                            type="date"
+                            className={inputCls}
+                            value={form.cnpp.masc_fecha_termino}
+                            onChange={(e) => setForm({ ...form, cnpp: { ...form.cnpp, masc_fecha_termino: e.target.value } })}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className={labelCls + " mb-0"}>Especifique condiciones del acuerdo</label>
+                          <span className="text-[10px] text-[#F5F5F3]/30">{(form.cnpp.masc_condiciones || "").length}/1000</span>
+                        </div>
+                        <textarea
+                          className={inputCls}
+                          rows={3}
+                          maxLength={1000}
+                          value={form.cnpp.masc_condiciones}
+                          onChange={(e) => setForm({ ...form, cnpp: { ...form.cnpp, masc_condiciones: e.target.value } })}
+                          placeholder="Describa las obligaciones, pagos reparatorios o condiciones pactadas en el acuerdo…"
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button onClick={submit} disabled={!form.title || !form.client_id || saving} className="w-full bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 disabled:opacity-30 hover:bg-[#A8841D] transition-colors font-medium">{saving ? "Guardando…" : editingId ? "Guardar Cambios" : "Crear Caso"}</button>
         </div>
       </Modal>
 
@@ -535,6 +835,18 @@ export default function Casos() {
               >
                 <Briefcase size={13} />
                 <span>Información General</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setDetailTab("penal")}
+                className={`flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-wider transition-colors border-b-2 ${
+                  detailTab === "penal"
+                    ? "border-[#C9A227] text-[#C9A227] font-medium"
+                    : "border-transparent text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
+                }`}
+              >
+                <Folder size={13} />
+                <span>Fase Penal (CNPP)</span>
               </button>
             </div>
 
@@ -735,11 +1047,123 @@ export default function Casos() {
                 <div>
                   <span className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider block mb-1">Descripción y Notas del Caso</span>
                   <p className="text-[#F5F5F3]/70 leading-relaxed bg-[#0F0F0F] p-3 border border-[#161616] whitespace-pre-wrap">
-                    {selectedCaseDetail.description || "Sin descripción registrada para este caso."}
+                    {cleanCaseDescription(selectedCaseDetail.description) || "Sin notas adicionales registradas para este caso."}
                   </p>
                 </div>
               </div>
             )}
+
+            {/* Tab: Fase Penal / CNPP */}
+            {detailTab === "penal" && (() => {
+              const cnpp = parseCnppData(selectedCaseDetail.description);
+              return (
+                <div className="space-y-4 bg-[#0A0A0A] border border-[#1A1A1A] p-5 text-xs rounded-sm">
+                  {!cnpp.active && !cnpp.carpeta_investigacion && !cnpp.delito ? (
+                    <div className="text-center py-10">
+                      <Folder size={32} className="text-[#F5F5F3]/10 mx-auto mb-2" />
+                      <p className="text-xs text-[#F5F5F3]/40 mb-3">No se han registrado datos de la fase de investigación para este caso.</p>
+                      {permissions?.can_edit_cases && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const c = selectedCaseDetail;
+                            setSelectedCaseDetail(null);
+                            openEdit(c);
+                          }}
+                          className="px-3.5 py-2 bg-[#C9A227] text-[#080808] font-bold text-xs uppercase tracking-wider rounded hover:bg-[#A8841D] transition-colors inline-flex items-center gap-1.5"
+                        >
+                          <Pencil size={12} /> Habilitar Carpeta Penal (CNPP)
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {/* Sujeto & Carpeta Header */}
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div className="p-3 bg-[#0F0F0F] border border-[#161616]">
+                          <span className="text-[10px] uppercase tracking-wider text-[#F5F5F3]/40 block mb-1">Calidad Procesal</span>
+                          <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded ${
+                            cnpp.calidad === "victima" ? "bg-amber-400/10 text-amber-300 border border-amber-400/30" : "bg-red-400/10 text-red-300 border border-red-400/30"
+                          }`}>
+                            {cnpp.calidad === "victima" ? "Víctima / Ofendido" : "Imputado / Investigado"}
+                          </span>
+                        </div>
+                        <div className="p-3 bg-[#0F0F0F] border border-[#161616]">
+                          <span className="text-[10px] uppercase tracking-wider text-[#F5F5F3]/40 block mb-1">Delito</span>
+                          <span className="text-xs font-medium text-[#F5F5F3]">{cnpp.delito || "Sin especificar"}</span>
+                        </div>
+                        <div className="p-3 bg-[#0F0F0F] border border-[#161616]">
+                          <span className="text-[10px] uppercase tracking-wider text-[#F5F5F3]/40 block mb-1">No. Carpeta de Investigación</span>
+                          <span className="text-xs font-mono font-medium text-[#C9A227]">{cnpp.carpeta_investigacion || "—"}</span>
+                        </div>
+                      </div>
+
+                      {/* Determinación de Carpeta */}
+                      <div className="p-4 bg-[#0F0F0F] border border-[#161616] space-y-2">
+                        <span className="text-[10px] uppercase tracking-wider text-[#F5F5F3]/40 block">Determinación de Carpeta</span>
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full bg-[#C9A227]" />
+                          <span className="text-sm font-semibold text-[#F5F5F3]">
+                            {DETERMINACION_LABELS[cnpp.determinacion] || cnpp.determinacion || "En trámite"}
+                          </span>
+                        </div>
+
+                        {/* Recurso innominado Art. 258 CNPP */}
+                        <div className="mt-3 pt-3 border-t border-[#1C1C1C] flex flex-wrap items-center justify-between gap-2">
+                          <span className="text-xs text-[#F5F5F3]/70">
+                            Impugnación mediante Recurso innominado (Artículo 258 CNPP):
+                          </span>
+                          <span className={`text-[10px] uppercase font-bold px-2 py-0.5 border ${
+                            cnpp.impugno_258 === "si" ? "text-amber-400 border-amber-400/30 bg-amber-400/10" : "text-[#F5F5F3]/30 border-[#222]"
+                          }`}>
+                            {cnpp.impugno_258 === "si" ? `SÍ · Fecha de impugnación: ${cnpp.fecha_impugnacion ? new Date(cnpp.fecha_impugnacion).toLocaleDateString("es") : "Sin fecha"}` : "NO"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* MASC en Etapa de Investigación */}
+                      <div className="p-4 bg-[#0F0F0F] border border-[#161616] space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] uppercase tracking-wider text-[#F5F5F3]/40 font-medium">
+                            Mecanismo Alterno de Solución de Controversia (MASC) en Investigación
+                          </span>
+                          <span className={`text-[10px] uppercase font-bold px-2 py-0.5 border ${
+                            cnpp.masc_investigacion === "si" ? "text-emerald-400 border-emerald-400/30 bg-emerald-400/10" : "text-[#F5F5F3]/30 border-[#222]"
+                          }`}>
+                            {cnpp.masc_investigacion === "si" ? "Acuerdo MASC Celebrado ✓" : "Sin MASC"}
+                          </span>
+                        </div>
+
+                        {cnpp.masc_investigacion === "si" && (
+                          <div className="space-y-3 pt-2 border-t border-[#1C1C1C]">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div>
+                                <span className="text-[10px] text-[#F5F5F3]/40 uppercase block">No. de Acuerdo MASC</span>
+                                <span className="text-xs font-mono font-medium text-[#F5F5F3]">{cnpp.masc_numero_acuerdo || "—"}</span>
+                              </div>
+                              <div>
+                                <span className="text-[10px] text-[#F5F5F3]/40 uppercase block">Plazo de Acuerdo</span>
+                                <span className="text-xs text-[#F5F5F3]">
+                                  {cnpp.masc_fecha_inicio ? new Date(cnpp.masc_fecha_inicio).toLocaleDateString("es") : "—"} al {cnpp.masc_fecha_termino ? new Date(cnpp.masc_fecha_termino).toLocaleDateString("es") : "—"}
+                                </span>
+                              </div>
+                            </div>
+                            {cnpp.masc_condiciones && (
+                              <div>
+                                <span className="text-[10px] text-[#F5F5F3]/40 uppercase block mb-1">Condiciones del Acuerdo</span>
+                                <p className="text-xs text-[#F5F5F3]/80 bg-[#080808] p-3 border border-[#161616] whitespace-pre-line leading-relaxed">
+                                  {cnpp.masc_condiciones}
+                                </p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         )}
       </Modal>

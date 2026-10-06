@@ -47,12 +47,15 @@ const EMPTY = {
   lawyer: "", 
   status: "borrador", 
   file_url: "", 
-  file_name: "" 
+  file_name: "",
+  file_source: "upload", // "upload" | "drive"
+  drive_url: ""
 };
 
 function getFileType(doc) {
   if (!doc) return "unknown";
   const nameOrUrl = (doc.file_name || doc.file_url || "").toLowerCase();
+  if (nameOrUrl.includes("drive.google.com") || nameOrUrl.includes("docs.google.com")) return "drive";
   if (nameOrUrl.endsWith(".pdf") || nameOrUrl.includes(".pdf")) return "pdf";
   if (nameOrUrl.match(/\.(png|jpe?g|webp|gif|svg)(\?.*)?$/)) return "image";
   if (nameOrUrl.match(/\.(docx?|odt)(\?.*)?$/)) return "word";
@@ -259,6 +262,7 @@ export default function Documentos() {
     const caseObj = cases.find(c => c.id === d.case_id);
     const clientId = caseObj?.client_id || "";
 
+    const isDrive = (d.file_url || "").includes("drive.google.com") || (d.file_url || "").includes("docs.google.com");
     setForm({ 
       title: d.title || "", 
       doc_type: docType, 
@@ -270,7 +274,9 @@ export default function Documentos() {
       lawyer: d.lawyer || "",
       status: d.status || "borrador",
       file_url: d.file_url || "",
-      file_name: d.file_name || ""
+      file_name: d.file_name || "",
+      file_source: isDrive ? "drive" : "upload",
+      drive_url: isDrive ? (d.file_url || "") : ""
     }); 
     setModalOpen(true); 
   };
@@ -321,14 +327,17 @@ export default function Documentos() {
         ? form.assigned_lawyers.join(", ")
         : (form.lawyer || "");
 
+      const finalUrl = form.file_source === "drive" ? (form.drive_url || form.file_url) : form.file_url;
+      const finalName = form.file_source === "drive" ? (form.file_name || "Enlace Google Drive") : form.file_name;
+
       const payload = {
         title: form.title,
         doc_type: finalDocType,
         case_id: targetCaseId,
         lawyer: lawyerString,
         status: form.status,
-        file_url: form.file_url,
-        file_name: form.file_name,
+        file_url: finalUrl,
+        file_name: finalName,
         updated_at: new Date().toISOString()
       };
 
@@ -1264,12 +1273,62 @@ export default function Documentos() {
             </p>
           </div>
           <div>
-            <label className={labelCls}>Archivo</label>
-            <label className="flex items-center gap-2 border border-dashed border-[#2A2A2A] px-4 py-3 cursor-pointer hover:border-[#C9A227] transition-colors">
-              <Upload size={15} className="text-[#F5F5F3]/30" />
-              <span className="text-[#F5F5F3]/40 text-xs">{form.file_name || (form.file_url ? "Archivo cargado ✓" : uploading ? "Subiendo…" : "Seleccionar archivo")}</span>
-              <input type="file" className="hidden" onChange={handleFile} />
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className={labelCls + " mb-0"}>Origen del Documento</label>
+              <div className="flex bg-[#141414] border border-[#1E1E1E] p-0.5 rounded text-[10px]">
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, file_source: "upload" })}
+                  className={`px-2.5 py-1 transition-colors ${
+                    form.file_source !== "drive"
+                      ? "bg-[#C9A227] text-[#080808] font-bold"
+                      : "text-[#F5F5F3]/50 hover:text-[#F5F5F3]"
+                  }`}
+                >
+                  Subir Archivo Local
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, file_source: "drive" })}
+                  className={`px-2.5 py-1 transition-colors ${
+                    form.file_source === "drive"
+                      ? "bg-[#C9A227] text-[#080808] font-bold"
+                      : "text-[#F5F5F3]/50 hover:text-[#F5F5F3]"
+                  }`}
+                >
+                  Vincular Google Drive
+                </button>
+              </div>
+            </div>
+
+            {form.file_source === "drive" ? (
+              <div className="space-y-2 p-3 bg-[#0A0A0A] border border-[#1A1A1A]">
+                <div>
+                  <label className={labelCls}>Enlace de Google Drive / Documento en la Nube</label>
+                  <input
+                    type="url"
+                    className={inputCls}
+                    placeholder="https://docs.google.com/... o https://drive.google.com/..."
+                    value={form.drive_url || form.file_url || ""}
+                    onChange={(e) => setForm({ 
+                      ...form, 
+                      drive_url: e.target.value, 
+                      file_url: e.target.value,
+                      file_name: form.file_name || "Documento Google Drive" 
+                    })}
+                  />
+                </div>
+                <p className="text-[10px] text-[#F5F5F3]/40">
+                  ℹ️ Vincula archivos compartidos de Drive para evitar descargas y resubidas repetitivas.
+                </p>
+              </div>
+            ) : (
+              <label className="flex items-center gap-2 border border-dashed border-[#2A2A2A] px-4 py-3 cursor-pointer hover:border-[#C9A227] transition-colors">
+                <Upload size={15} className="text-[#F5F5F3]/30" />
+                <span className="text-[#F5F5F3]/40 text-xs">{form.file_name || (form.file_url ? "Archivo cargado ✓" : uploading ? "Subiendo…" : "Seleccionar archivo")}</span>
+                <input type="file" className="hidden" onChange={handleFile} />
+              </label>
+            )}
           </div>
           <button onClick={submit} disabled={!form.title || saving} className="w-full bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 disabled:opacity-30 hover:bg-[#A8841D] transition-colors">{saving ? "Guardando…" : editingId ? "Guardar Cambios" : "Subir Documento"}</button>
         </div>
@@ -1345,6 +1404,37 @@ export default function Documentos() {
             <div className="flex-1 bg-[#050505] p-2 overflow-hidden flex flex-col items-center justify-center">
               {(() => {
                 const fType = getFileType(viewingDoc);
+
+                if (fType === "drive") {
+                  let embedUrl = viewingDoc.file_url;
+                  if (embedUrl.includes("drive.google.com/file/d/")) {
+                    embedUrl = embedUrl.replace(/\/view(\?.*)?$/, "/preview");
+                  }
+                  return (
+                    <div className="w-full h-full flex flex-col bg-white">
+                      <div className="px-4 py-2 bg-[#0C0C0C] border-b border-[#1A1A1A] flex items-center justify-between text-xs flex-shrink-0">
+                        <span className="text-[10px] uppercase tracking-wider font-semibold text-[#C9A227] bg-[#C9A227]/10 px-2 py-0.5 border border-[#C9A227]/20">
+                          Documento en Google Drive / Nube
+                        </span>
+                        <a 
+                          href={viewingDoc.file_url} 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="text-[#C9A227] hover:underline flex items-center gap-1 text-xs"
+                        >
+                          <span>Abrir directamente en Google Drive</span>
+                          <ExternalLink size={12} />
+                        </a>
+                      </div>
+                      <iframe
+                        src={embedUrl}
+                        className="w-full h-full border-0 bg-white"
+                        title={viewingDoc.title}
+                        allow="autoplay"
+                      />
+                    </div>
+                  );
+                }
 
                 if (fType === "image") {
                   return (

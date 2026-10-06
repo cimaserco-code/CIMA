@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Calendar as CalIcon, MapPin, Clock, ChevronLeft, ChevronRight, LayoutGrid, List, Pencil, Trash2, Briefcase, Users, FileText, X } from "lucide-react";
+import { Plus, Calendar as CalIcon, MapPin, Clock, ChevronLeft, ChevronRight, LayoutGrid, List, Pencil, Trash2, Briefcase, Users, FileText, X, Mail, ExternalLink, Download, BellRing } from "lucide-react";
 import PageHeader from "@/components/legal/PageHeader";
 import Modal from "@/components/legal/Modal";
 import LawyerSelect from "@/components/legal/LawyerSelect";
@@ -24,10 +24,23 @@ export function getEventAreaTag(description) {
   return null;
 }
 
+export function getEventReminder(description) {
+  if (!description || typeof description !== "string") return null;
+  const match = description.match(/<!--\s*reminder:([^|]+)\|([^\s>]+)\s*-->/i);
+  if (match) {
+    return {
+      timing: match[1],
+      email: match[2]
+    };
+  }
+  return null;
+}
+
 export function cleanDescription(description) {
   if (!description || typeof description !== "string") return "";
   return description
     .replace(/<!--\s*area:[^>]+-->\s*/gi, "")
+    .replace(/<!--\s*reminder:[^>]+-->\s*/gi, "")
     .replace(/\[Área:\s*(penal|legal|bpl|blp|ambas|todas)\]\s*/gi, "")
     .trim();
 }
@@ -36,6 +49,88 @@ export function injectAreaTag(description, area) {
   const clean = cleanDescription(description);
   if (!area) return clean;
   return `<!-- area:${area} -->\n${clean}`.trim();
+}
+
+export function injectEventMetadata(description, area, reminder) {
+  let clean = cleanDescription(description);
+  if (reminder && reminder.enabled && reminder.email) {
+    clean = `<!-- reminder:${reminder.timing || '1h'}|${reminder.email.trim()} -->\n${clean}`.trim();
+  }
+  if (area) {
+    clean = `<!-- area:${area} -->\n${clean}`.trim();
+  }
+  return clean;
+}
+
+export function getGoogleCalendarUrl(event, cases) {
+  const caseObj = cases?.find(c => c.id === event.case_id);
+  const title = encodeURIComponent(event.title || "Evento Legal CIMA");
+  const dateStr = (event.event_date || "").replace(/-/g, "");
+  let startISO = dateStr;
+  let endISO = dateStr;
+
+  if (event.event_time) {
+    const parts = String(event.event_time).split(":");
+    const h = (parts[0] || "09").padStart(2, "0");
+    const m = (parts[1] || "00").padStart(2, "0");
+    startISO = `${dateStr}T${h}${m}00`;
+    const endH = String((parseInt(h, 10) + 1) % 24).padStart(2, "0");
+    endISO = `${dateStr}T${endH}${m}00`;
+  }
+
+  const lawyersStr = Array.isArray(event.assigned_lawyers) ? event.assigned_lawyers.join(", ") : (event.assigned_lawyers || "—");
+  const cleanDesc = cleanDescription(event.description || "");
+  const details = encodeURIComponent(
+    `${cleanDesc}\n\nTipo: ${event.event_type || 'Evento'}\nCaso: ${caseObj ? `${caseObj.title} (${caseObj.case_number})` : 'Sin caso'}\nAbogados: ${lawyersStr}\nDespacho CIMA`
+  );
+  const location = encodeURIComponent("Despacho CIMA / Juzgados");
+  return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${startISO}/${endISO}&details=${details}&location=${location}`;
+}
+
+export function downloadEventIcs(event, cases) {
+  const caseObj = cases?.find(c => c.id === event.case_id);
+  const dateStr = (event.event_date || "").replace(/-/g, "");
+  let startISO = dateStr;
+  let endISO = dateStr;
+
+  if (event.event_time) {
+    const parts = String(event.event_time).split(":");
+    const h = (parts[0] || "09").padStart(2, "0");
+    const m = (parts[1] || "00").padStart(2, "0");
+    startISO = `${dateStr}T${h}${m}00`;
+    const endH = String((parseInt(h, 10) + 1) % 24).padStart(2, "0");
+    endISO = `${dateStr}T${endH}${m}00`;
+  }
+
+  const lawyersStr = Array.isArray(event.assigned_lawyers) ? event.assigned_lawyers.join(", ") : (event.assigned_lawyers || "—");
+  const cleanDesc = cleanDescription(event.description || "").replace(/\n/g, "\\n");
+  const caseInfo = caseObj ? `${caseObj.title} (${caseObj.case_number})` : "Sin caso";
+
+  const icsLines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//CIMA//Calendario Juridico//ES",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `SUMMARY:${(event.title || "Evento CIMA").replace(/[,;]/g, " ")}`,
+    `DESCRIPTION:${cleanDesc} | Caso: ${caseInfo} | Abogados: ${lawyersStr}`,
+    `LOCATION:Despacho CIMA / Juzgados`,
+    `DTSTART:${startISO}`,
+    `DTEND:${endISO}`,
+    "STATUS:CONFIRMED",
+    "END:VEVENT",
+    "END:VCALENDAR"
+  ];
+
+  const blob = new Blob([icsLines.join("\r\n")], { type: "text/calendar;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${(event.title || "evento_cima").toLowerCase().replace(/[^a-z0-9]/g, "_")}.ics`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 const TYPES = ["audiencia", "vencimiento_termino", "reunion_interna", "cita_cliente", "diligencia", "recordatorio_general"];
@@ -149,7 +244,19 @@ const areaStyles = {
   unknown: "border-[#F5F5F3]/15 bg-[#F5F5F3]/5 text-[#F5F5F3]/40"
 };
 
-const EMPTY = { title: "", event_type: "audiencia", event_date: "", event_time: "", case_id: "", assigned_lawyers: [], description: "", area: "legal" };
+const EMPTY = { 
+  title: "", 
+  event_type: "audiencia", 
+  event_date: "", 
+  event_time: "", 
+  case_id: "", 
+  assigned_lawyers: [], 
+  description: "", 
+  area: "legal",
+  reminder_enabled: false,
+  reminder_timing: "1h",
+  reminder_email: ""
+};
 
 export default function Calendario() {
   const { user, profile, permissions } = useAuth();
@@ -243,7 +350,11 @@ export default function Calendario() {
   const openNew = () => { 
     setEditingId(null); 
     const defaultArea = profile?.area_id ? getAreaCategory(profile.area_id) || "legal" : "legal";
-    setForm({ ...EMPTY, area: defaultArea }); 
+    setForm({ 
+      ...EMPTY, 
+      area: defaultArea,
+      reminder_email: user?.email || ""
+    }); 
     setModalOpen(true); 
   };
   const openEdit = (e) => {
@@ -251,6 +362,8 @@ export default function Calendario() {
     const taggedArea = getEventAreaTag(e.description);
     const caseArea = e.case_id ? getAreaCategory(cases.find(c => c.id === e.case_id)?.area_id) : null;
     const currentArea = taggedArea || caseArea || (profile?.area_id ? getAreaCategory(profile.area_id) || "legal" : "legal");
+    const reminderInfo = getEventReminder(e.description);
+
     setForm({ 
       title: e.title || "", 
       event_type: e.event_type || "audiencia", 
@@ -259,7 +372,10 @@ export default function Calendario() {
       case_id: e.case_id || "", 
       assigned_lawyers: toArray(e.assigned_lawyers), 
       description: cleanDescription(e.description),
-      area: currentArea
+      area: currentArea,
+      reminder_enabled: !!reminderInfo,
+      reminder_timing: reminderInfo?.timing || "1h",
+      reminder_email: reminderInfo?.email || user?.email || ""
     });
     setModalOpen(true);
   };
@@ -276,7 +392,11 @@ export default function Calendario() {
 
     setSaving(true);
     try {
-      const finalDesc = injectAreaTag(form.description, form.area);
+      const finalDesc = injectEventMetadata(form.description, form.area, {
+        enabled: form.reminder_enabled,
+        timing: form.reminder_timing,
+        email: form.reminder_email
+      });
       const payload = {
         title: form.title,
         event_type: form.event_type,
@@ -382,33 +502,41 @@ export default function Calendario() {
   const inputCls = "w-full bg-[#0F0F0F] border border-[#1A1A1A] px-4 py-2.5 text-sm text-[#F5F5F3] placeholder:text-[#F5F5F3]/20 focus:outline-none focus:border-[#C9A227] transition-colors";
   const labelCls = "text-[#F5F5F3]/40 text-[10px] tracking-wider uppercase mb-1.5 block";
 
-  const renderEventCard = (e) => (
-    <div 
-      key={e.id} 
-      onClick={() => setViewingEvent(e)}
-      className="bg-[#0F0F0F] border border-[#1A1A1A] p-4 group cursor-pointer hover:border-[#C9A227]/50 transition-colors text-left"
-    >
-      <div className="flex items-center justify-between mb-2">
-        <div className="flex items-center gap-1.5">
-          <span className={`text-[9px] tracking-wider uppercase px-2 py-1 font-medium ${typeColors[e.event_type] || ""}`}>
-            {typeLabels[e.event_type] || e.event_type}
-          </span>
-          {renderAreaBadge(e)}
-        </div>
-        <div className="flex items-center gap-2">
-          {e.event_time && <span className="text-[#F5F5F3]/30 text-[11px] flex items-center gap-1"><Clock size={11} />{e.event_time}</span>}
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button onClick={(ev) => { ev.stopPropagation(); openEdit(e); }} className="p-1 text-[#F5F5F3]/30 hover:text-[#C9A227] transition-colors" title="Editar"><Pencil size={13} /></button>
-            <button onClick={(ev) => { ev.stopPropagation(); remove(e); }} className="p-1 text-[#F5F5F3]/30 hover:text-red-400 transition-colors" title="Eliminar"><Trash2 size={13} /></button>
+  const renderEventCard = (e) => {
+    const rem = getEventReminder(e.description);
+    return (
+      <div 
+        key={e.id} 
+        onClick={() => setViewingEvent(e)}
+        className="bg-[#0F0F0F] border border-[#1A1A1A] p-4 group cursor-pointer hover:border-[#C9A227]/50 transition-colors text-left"
+      >
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className={`text-[9px] tracking-wider uppercase px-2 py-0.5 font-medium ${typeColors[e.event_type] || ""}`}>
+              {typeLabels[e.event_type] || e.event_type}
+            </span>
+            {renderAreaBadge(e)}
+            {rem && (
+              <span className="inline-flex items-center gap-1 text-[8px] text-[#C9A227] bg-[#C9A227]/10 px-1.5 py-0.5 border border-[#C9A227]/20 rounded-sm" title={`Aviso a ${rem.email}`}>
+                <BellRing size={8} /> {rem.timing === '1d' ? '1d antes' : rem.timing + ' antes'}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            {e.event_time && <span className="text-[#F5F5F3]/30 text-[11px] flex items-center gap-1"><Clock size={11} />{e.event_time}</span>}
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button onClick={(ev) => { ev.stopPropagation(); openEdit(e); }} className="p-1 text-[#F5F5F3]/30 hover:text-[#C9A227] transition-colors" title="Editar"><Pencil size={13} /></button>
+              <button onClick={(ev) => { ev.stopPropagation(); remove(e); }} className="p-1 text-[#F5F5F3]/30 hover:text-red-400 transition-colors" title="Eliminar"><Trash2 size={13} /></button>
+            </div>
           </div>
         </div>
+        <p className="text-[#F5F5F3] text-sm mb-2 group-hover:text-[#C9A227] transition-colors font-medium">{e.title}</p>
+        <div className="space-y-1 text-[11px] text-[#F5F5F3]/40">
+          <p><span className="text-[#F5F5F3]/20">Abogado(s):</span> {lawyers(e.assigned_lawyers)}</p>
+        </div>
       </div>
-      <p className="text-[#F5F5F3] text-sm mb-2 group-hover:text-[#C9A227] transition-colors font-medium">{e.title}</p>
-      <div className="space-y-1 text-[11px] text-[#F5F5F3]/40">
-        <p><span className="text-[#F5F5F3]/20">Abogado(s):</span> {lawyers(e.assigned_lawyers)}</p>
-      </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div>
@@ -589,6 +717,46 @@ export default function Calendario() {
               </div>
             )}
 
+            {(() => {
+              const rem = getEventReminder(viewingEvent.description);
+              if (!rem) return null;
+              return (
+                <div className="p-3 bg-[#0F0F0F] border border-[#C9A227]/30 flex items-center gap-2.5">
+                  <BellRing size={16} className="text-[#C9A227] flex-shrink-0" />
+                  <div>
+                    <p className="text-[#F5F5F3]/40 text-[10px] uppercase tracking-wider">Aviso Personal Programado</p>
+                    <p className="text-[#F5F5F3] text-xs">
+                      Notificación por correo <span className="text-[#C9A227] font-semibold">{rem.timing === '1d' ? '1 día antes' : rem.timing + ' antes'}</span> a <span className="font-mono text-[#F5F5F3]/90">{rem.email}</span>
+                    </p>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* Sincronización Externa */}
+            <div className="p-3 bg-[#0A0A0A] border border-[#1A1A1A] space-y-2">
+              <p className="text-[10px] uppercase tracking-wider text-[#F5F5F3]/40 font-medium">Sincronización de Calendario</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <a
+                  href={getGoogleCalendarUrl(viewingEvent, cases)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-2 bg-[#141414] hover:bg-[#1E1E1E] text-[#F5F5F3] hover:text-[#C9A227] border border-[#1E1E1E] text-xs flex items-center justify-center gap-2 transition-colors font-medium rounded-sm"
+                >
+                  <ExternalLink size={13} className="text-[#C9A227]" />
+                  <span>Añadir a Google Calendar</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => downloadEventIcs(viewingEvent, cases)}
+                  className="px-3 py-2 bg-[#141414] hover:bg-[#1E1E1E] text-[#F5F5F3] hover:text-[#C9A227] border border-[#1E1E1E] text-xs flex items-center justify-center gap-2 transition-colors font-medium rounded-sm"
+                >
+                  <Download size={13} className="text-[#C9A227]" />
+                  <span>Descargar .ics (Outlook/Celular)</span>
+                </button>
+              </div>
+            </div>
+
             <div className="flex gap-2 pt-2 border-t border-[#1A1A1A]">
               <button
                 type="button"
@@ -654,7 +822,56 @@ export default function Calendario() {
             <LawyerSelect members={eligibleLawyersForEvent} selected={form.assigned_lawyers} onChange={(v) => setForm({ ...form, assigned_lawyers: v })} />
           </div>
           <div><label className={labelCls}>Descripción</label><textarea className={inputCls} rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Descripción" /></div>
-          <button onClick={submit} disabled={!form.title || !form.event_date || saving} className="w-full bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 disabled:opacity-30 hover:bg-[#A8841D] transition-colors">{saving ? "Guardando…" : editingId ? "Guardar Cambios" : "Crear Evento"}</button>
+
+          {/* Aviso Personal vía Correo Electrónico */}
+          <div className="p-3.5 bg-[#0C0C0C] border border-[#1E1E1E] space-y-3 rounded-sm">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Mail size={14} className="text-[#C9A227]" />
+                <span className="text-xs text-[#F5F5F3] font-medium">Aviso personal por correo electrónico</span>
+              </div>
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.reminder_enabled}
+                  onChange={(e) => setForm({ ...form, reminder_enabled: e.target.checked })}
+                  className="sr-only peer"
+                />
+                <div className="w-8 h-4 bg-[#1E1E1E] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-[#F5F5F3] after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#C9A227]"></div>
+              </label>
+            </div>
+
+            {form.reminder_enabled && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2.5 border-t border-[#181818]">
+                <div>
+                  <label className={labelCls}>Correo Personal / Destinatario</label>
+                  <input
+                    type="email"
+                    className={inputCls}
+                    value={form.reminder_email}
+                    onChange={(e) => setForm({ ...form, reminder_email: e.target.value })}
+                    placeholder="tucorreo@ejemplo.com"
+                  />
+                </div>
+                <div>
+                  <label className={labelCls}>Anticipación del Aviso</label>
+                  <select
+                    className={inputCls}
+                    value={form.reminder_timing}
+                    onChange={(e) => setForm({ ...form, reminder_timing: e.target.value })}
+                  >
+                    <option value="1h">1 hora antes</option>
+                    <option value="2h">2 horas antes</option>
+                    <option value="4h">4 horas antes</option>
+                    <option value="12h">12 horas antes</option>
+                    <option value="1d">1 día antes (24 horas)</option>
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button onClick={submit} disabled={!form.title || !form.event_date || saving} className="w-full bg-[#C9A227] text-[#080808] text-xs tracking-wider uppercase px-5 py-3 disabled:opacity-30 hover:bg-[#A8841D] transition-colors font-medium">{saving ? "Guardando…" : editingId ? "Guardar Cambios" : "Crear Evento"}</button>
         </div>
       </Modal>
     </div>
