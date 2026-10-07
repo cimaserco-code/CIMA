@@ -143,7 +143,11 @@ export default function Casos() {
 
   const handleSelectCase = async (c) => {
     setSelectedCaseDetail(c);
-    setDetailTab("documentos");
+    const cnpp = parseCnppData(c.description);
+    const hasCnpp = cnpp.active || !!cnpp.carpeta_investigacion || !!cnpp.delito;
+    const isPenal = areas.find(a => a.id === c.area_id)?.name?.toLowerCase() === "penal";
+    // Priorizar la vista de la fase penal si es un caso penal o tiene datos de carpeta
+    setDetailTab(hasCnpp || isPenal ? "penal" : "general");
     setDetailLoading(true);
     try {
       const [dRes, tRes] = await Promise.all([
@@ -182,13 +186,20 @@ export default function Casos() {
     const client = (c.client || "").toLowerCase();
     const practice = (c.practice_area || "").toLowerCase();
     const lawyersStr = Array.isArray(c.assigned_lawyers) ? c.assigned_lawyers.join(" ").toLowerCase() : "";
+    const desc = (c.description || "").toLowerCase();
+    const cnpp = parseCnppData(c.description);
+    const carpeta = (cnpp.carpeta_investigacion || "").toLowerCase();
+    const delito = (cnpp.delito || "").toLowerCase();
 
     const matchesSearch =
       title.includes(term) ||
       caseNum.includes(term) ||
       client.includes(term) ||
       practice.includes(term) ||
-      lawyersStr.includes(term);
+      lawyersStr.includes(term) ||
+      desc.includes(term) ||
+      carpeta.includes(term) ||
+      delito.includes(term);
 
     return matchesStatus && matchesPractice && matchesArea && matchesSearch;
   });
@@ -337,6 +348,9 @@ export default function Casos() {
         }
       }
 
+      if (selectedCaseDetail && selectedCaseDetail.id === editingId) {
+        setSelectedCaseDetail(prev => ({ ...prev, ...payload }));
+      }
       setModalOpen(false); setForm(EMPTY); setEditingId(null); load();
     } catch (e) { 
       console.error(e); 
@@ -465,11 +479,41 @@ export default function Casos() {
                   <p><span className="text-[#F5F5F3]/20">Abogado(s):</span> {lawyers(c.assigned_lawyers)}</p>
                   {c.next_hearing && <p className="flex items-center gap-1.5"><Calendar size={11} /> {new Date(c.next_hearing).toLocaleDateString("es")}</p>}
                 </div>
+
+                {/* Vista previa destacada de Carpeta de Investigación y Delito */}
+                {(() => {
+                  const cnpp = parseCnppData(c.description);
+                  if (!cnpp.carpeta_investigacion && !cnpp.delito) return null;
+                  return (
+                    <div className="mt-3 p-2.5 bg-[#121212] border border-[#C9A227]/30 rounded-sm space-y-1 text-[11px]">
+                      {cnpp.carpeta_investigacion && (
+                        <div className="font-mono text-[#C9A227] font-semibold truncate flex items-center gap-1.5">
+                          <Folder size={12} className="text-[#C9A227] flex-shrink-0" />
+                          <span className="truncate">Carpeta: {cnpp.carpeta_investigacion}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-1.5 text-[10px] text-[#F5F5F3]/70 flex-wrap">
+                        {cnpp.calidad && (
+                          <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-bold tracking-wider ${
+                            cnpp.calidad === "victima" ? "text-amber-300 bg-amber-400/10 border border-amber-400/20" : "text-red-300 bg-red-400/10 border border-red-400/20"
+                          }`}>
+                            {cnpp.calidad === "victima" ? "Víctima" : "Imputado"}
+                          </span>
+                        )}
+                        {cnpp.delito && (
+                          <span className="text-[#F5F5F3]/80 truncate max-w-[200px]" title={cnpp.delito}>
+                            Delito: {cnpp.delito}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Card Footer Callout */}
               <div className="mt-4 pt-3 border-t border-[#141414] flex items-center justify-between text-[10px] text-[#F5F5F3]/30 group-hover:text-[#C9A227] transition-colors">
-                <span>Ver documentos y tareas</span>
+                <span>Ver expediente y actuaciones</span>
                 <ArrowUpRight size={13} />
               </div>
             </div>
@@ -771,88 +815,136 @@ export default function Casos() {
         {selectedCaseDetail && (
           <div className="space-y-5 text-left">
             {/* Header info bar */}
-            <div className="bg-[#0A0A0A] border border-[#1A1A1A] p-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-[#C9A227] font-semibold">{selectedCaseDetail.case_number}</span>
-                  <span className={`text-[9px] tracking-wider uppercase px-2 py-0.5 ${statusColors[selectedCaseDetail.status] || ""}`}>{selectedCaseDetail.status}</span>
-                  <span className={`text-[9px] tracking-wider uppercase ${priorityColors[selectedCaseDetail.priority] || ""}`}>{selectedCaseDetail.priority}</span>
+            <div className="bg-[#0A0A0A] border border-[#1A1A1A] p-4 space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs text-[#C9A227] font-semibold">{selectedCaseDetail.case_number}</span>
+                    <span className={`text-[9px] tracking-wider uppercase px-2 py-0.5 ${statusColors[selectedCaseDetail.status] || ""}`}>{selectedCaseDetail.status}</span>
+                    <span className={`text-[9px] tracking-wider uppercase ${priorityColors[selectedCaseDetail.priority] || ""}`}>{selectedCaseDetail.priority}</span>
+                  </div>
+                  <p className="text-xs text-[#F5F5F3]/50 mt-1.5">
+                    Cliente: <span className="text-[#F5F5F3] font-medium">{selectedCaseDetail.client}</span>
+                    {selectedCaseDetail.practice_area ? ` · ${selectedCaseDetail.practice_area}` : ""}
+                  </p>
                 </div>
-                <p className="text-xs text-[#F5F5F3]/50 mt-1.5">
-                  Cliente: <span className="text-[#F5F5F3] font-medium">{selectedCaseDetail.client}</span>
-                  {selectedCaseDetail.practice_area ? ` · ${selectedCaseDetail.practice_area}` : ""}
-                </p>
+
+                <div className="flex items-center gap-2">
+                  {permissions?.can_edit_cases && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const c = selectedCaseDetail;
+                        setSelectedCaseDetail(null);
+                        openEdit(c);
+                      }}
+                      className="px-3 py-1.5 border border-[#1E1E1E] text-xs text-[#F5F5F3]/60 hover:text-[#C9A227] hover:border-[#C9A227]/40 flex items-center gap-1.5 transition-colors"
+                    >
+                      <Pencil size={12} />
+                      <span>Editar Caso</span>
+                    </button>
+                  )}
+                </div>
               </div>
 
-              <div className="flex items-center gap-2">
-                {permissions?.can_edit_cases && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const c = selectedCaseDetail;
-                      setSelectedCaseDetail(null);
-                      openEdit(c);
-                    }}
-                    className="px-3 py-1.5 border border-[#1E1E1E] text-xs text-[#F5F5F3]/60 hover:text-[#C9A227] hover:border-[#C9A227]/40 flex items-center gap-1.5 transition-colors"
-                  >
-                    <Pencil size={12} />
-                    <span>Editar Caso</span>
-                  </button>
-                )}
-              </div>
+              {/* Banner superior con datos de Carpeta Penal (visible en todas las pestañas) */}
+              {(() => {
+                const cnpp = parseCnppData(selectedCaseDetail.description);
+                if (!cnpp.carpeta_investigacion && !cnpp.delito) return null;
+                return (
+                  <div className="pt-2.5 border-t border-[#1C1C1C] flex flex-wrap items-center gap-2.5 text-xs bg-[#121212] p-2.5 rounded-sm border border-[#C9A227]/30">
+                    <span className="font-semibold text-[#C9A227] flex items-center gap-1.5">
+                      <Folder size={13} className="text-[#C9A227]" />
+                      Carpeta: {cnpp.carpeta_investigacion || "Sin número"}
+                    </span>
+                    <span className="text-[#F5F5F3]/30">·</span>
+                    <span className="text-[#F5F5F3]/80">
+                      Delito: <strong className="text-[#F5F5F3] font-medium">{cnpp.delito || "Sin delito"}</strong>
+                    </span>
+                    <span className="text-[#F5F5F3]/30">·</span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wider ${
+                      cnpp.calidad === "victima" ? "text-amber-300 bg-amber-400/10 border border-amber-400/20" : "text-red-300 bg-red-400/10 border border-red-400/20"
+                    }`}>
+                      {cnpp.calidad === "victima" ? "Víctima / Ofendido" : "Imputado / Investigado"}
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Tabs inside modal */}
-            <div className="flex border-b border-[#1A1A1A] gap-1">
-              <button
-                type="button"
-                onClick={() => setDetailTab("documentos")}
-                className={`flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-wider transition-colors border-b-2 ${
-                  detailTab === "documentos"
-                    ? "border-[#C9A227] text-[#C9A227] font-medium"
-                    : "border-transparent text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
-                }`}
-              >
-                <FileText size={13} />
-                <span>Documentos ({caseDocs.length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setDetailTab("tareas")}
-                className={`flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-wider transition-colors border-b-2 ${
-                  detailTab === "tareas"
-                    ? "border-[#C9A227] text-[#C9A227] font-medium"
-                    : "border-transparent text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
-                }`}
-              >
-                <CheckSquare size={13} />
-                <span>Tareas ({caseTasks.length})</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setDetailTab("general")}
-                className={`flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-wider transition-colors border-b-2 ${
-                  detailTab === "general"
-                    ? "border-[#C9A227] text-[#C9A227] font-medium"
-                    : "border-transparent text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
-                }`}
-              >
-                <Briefcase size={13} />
-                <span>Información General</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => setDetailTab("penal")}
-                className={`flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-wider transition-colors border-b-2 ${
-                  detailTab === "penal"
-                    ? "border-[#C9A227] text-[#C9A227] font-medium"
-                    : "border-transparent text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
-                }`}
-              >
-                <Folder size={13} />
-                <span>Fase Penal (CNPP)</span>
-              </button>
-            </div>
+            {(() => {
+              const cnpp = parseCnppData(selectedCaseDetail.description);
+              const isPenalCase = cnpp.active || !!cnpp.carpeta_investigacion || !!cnpp.delito || areas.find(a => a.id === selectedCaseDetail.area_id)?.name?.toLowerCase() === "penal";
+              return (
+                <div className="flex border-b border-[#1A1A1A] gap-1 overflow-x-auto">
+                  {isPenalCase && (
+                    <button
+                      type="button"
+                      onClick={() => setDetailTab("penal")}
+                      className={`flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${
+                        detailTab === "penal"
+                          ? "border-[#C9A227] text-[#C9A227] font-semibold"
+                          : "border-transparent text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
+                      }`}
+                    >
+                      <Folder size={13} />
+                      <span>Fase Penal (CNPP)</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setDetailTab("general")}
+                    className={`flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${
+                      detailTab === "general"
+                        ? "border-[#C9A227] text-[#C9A227] font-semibold"
+                        : "border-transparent text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
+                    }`}
+                  >
+                    <Briefcase size={13} />
+                    <span>Información General</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailTab("documentos")}
+                    className={`flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${
+                      detailTab === "documentos"
+                        ? "border-[#C9A227] text-[#C9A227] font-semibold"
+                        : "border-transparent text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
+                    }`}
+                  >
+                    <FileText size={13} />
+                    <span>Documentos ({caseDocs.length})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDetailTab("tareas")}
+                    className={`flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${
+                      detailTab === "tareas"
+                        ? "border-[#C9A227] text-[#C9A227] font-semibold"
+                        : "border-transparent text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
+                    }`}
+                  >
+                    <CheckSquare size={13} />
+                    <span>Tareas ({caseTasks.length})</span>
+                  </button>
+                  {!isPenalCase && (
+                    <button
+                      type="button"
+                      onClick={() => setDetailTab("penal")}
+                      className={`flex items-center gap-2 px-4 py-2 text-xs uppercase tracking-wider transition-colors border-b-2 whitespace-nowrap ${
+                        detailTab === "penal"
+                          ? "border-[#C9A227] text-[#C9A227] font-semibold"
+                          : "border-transparent text-[#F5F5F3]/40 hover:text-[#F5F5F3]"
+                      }`}
+                    >
+                      <Folder size={13} />
+                      <span>Fase Penal (CNPP)</span>
+                    </button>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Tab: Documentos */}
             {detailTab === "documentos" && (
@@ -1060,6 +1152,46 @@ export default function Casos() {
                     </div>
                   </div>
                 </div>
+
+                {/* Resumen de Fase Penal / Carpeta en Información General */}
+                {(() => {
+                  const cnpp = parseCnppData(selectedCaseDetail.description);
+                  if (!cnpp.carpeta_investigacion && !cnpp.delito) return null;
+                  return (
+                    <div className="p-3.5 bg-[#121212] border border-[#C9A227]/30 rounded-sm space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] uppercase tracking-wider text-[#C9A227] font-semibold flex items-center gap-1.5">
+                          <Folder size={13} /> Carpeta de Investigación Penal (CNPP)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setDetailTab("penal")}
+                          className="text-[11px] text-[#C9A227] hover:underline flex items-center gap-1 font-medium"
+                        >
+                          Ver fase penal completa →
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 border-t border-[#1C1C1C]">
+                        <div>
+                          <span className="text-[10px] text-[#F5F5F3]/40 block uppercase">No. Carpeta</span>
+                          <span className="font-mono text-xs font-semibold text-[#F5F5F3]">{cnpp.carpeta_investigacion || "—"}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-[#F5F5F3]/40 block uppercase">Delito</span>
+                          <span className="text-xs text-[#F5F5F3]">{cnpp.delito || "—"}</span>
+                        </div>
+                        <div>
+                          <span className="text-[10px] text-[#F5F5F3]/40 block uppercase">Calidad Procesal</span>
+                          <span className={`text-[10px] uppercase font-bold ${
+                            cnpp.calidad === "victima" ? "text-amber-300" : "text-red-300"
+                          }`}>
+                            {cnpp.calidad === "victima" ? "Víctima / Ofendido" : "Imputado / Investigado"}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div>
                   <span className="text-[#F5F5F3]/30 text-[10px] uppercase tracking-wider block mb-1">Descripción y Notas del Caso</span>
