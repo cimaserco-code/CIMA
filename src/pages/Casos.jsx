@@ -12,7 +12,7 @@ import { createNotification } from "@/lib/notificationService";
 import { toast } from "@/components/ui/use-toast";
 import { filterMembersByArea } from "@/lib/areaPermissions";
 
-const PRACTICE_AREAS = ["Penal", "Litigio", "Corporativo", "M&A", "Propiedad Intelectual", "Regulatorio", "Arbitraje", "Fiscal", "Laboral"];
+const PRACTICE_AREAS = ["Litigio", "Corporativo", "M&A", "Propiedad Intelectual", "Regulatorio", "Arbitraje", "Fiscal", "Laboral"];
 const STATUSES = ["activo", "en_proceso", "en_espera", "cerrado", "archivado"];
 const PRIORITIES = ["alta", "media", "baja"];
 
@@ -204,7 +204,7 @@ export default function Casos() {
       ...EMPTY, 
       case_number: genCaseNumber(), 
       area_id: profile?.area_id || "",
-      practice_area: isPenal ? "Penal" : "Litigio",
+      practice_area: "Litigio",
       cnpp: { ...EMPTY_CNPP, active: isPenal }
     });
     setModalOpen(true);
@@ -242,12 +242,16 @@ export default function Casos() {
     setSaving(true);
     try {
       const finalDesc = injectCnppData(form.description, form.cnpp);
+      const selectedClient = dbClients.find(c => c.id === form.client_id);
+      const clientName = (form.client || selectedClient?.full_name || "").trim();
+      const validPracticeArea = (!form.practice_area || form.practice_area === "Penal") ? "Litigio" : form.practice_area;
+
       const payload = {
-        title: form.title,
+        title: form.title.trim(),
         case_number: form.case_number,
-        client: form.client,
+        client: clientName,
         client_id: form.client_id || null,
-        practice_area: form.practice_area,
+        practice_area: validPracticeArea,
         status: form.status,
         priority: form.priority,
         assigned_lawyers: toArray(form.assigned_lawyer),
